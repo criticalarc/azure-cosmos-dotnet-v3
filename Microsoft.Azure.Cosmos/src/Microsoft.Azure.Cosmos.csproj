@@ -20,12 +20,12 @@
     <PackageId>Microsoft.Azure.Cosmos</PackageId>
     <PackageTags>microsoft;azure;cosmos;cosmosdb;documentdb;docdb;nosql;azureofficial;dotnetcore;netcore;netstandard</PackageTags>
     <PackageReleaseNotes>The change log for this SDK is made available at https://github.com/Azure/azure-cosmos-dotnet-v3/blob/master/changelog.md at the time of release.</PackageReleaseNotes>
-    <PackageLicenseUrl>https://aka.ms/netcoregaeula</PackageLicenseUrl>
+	<PackageLicenseFile>LICENSE</PackageLicenseFile>	
     <PackageProjectUrl>https://github.com/Azure/azure-cosmos-dotnet-v3</PackageProjectUrl>
     <PackageIconUrl>http://go.microsoft.com/fwlink/?LinkID=288890</PackageIconUrl>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <ShippingScope>External</ShippingScope>
@@ -35,6 +35,7 @@
     <IncludeSource>false</IncludeSource>
     <CurrentDate>$([System.DateTime]::Now.ToString(yyyyMMdd))</CurrentDate>
     <RootNamespace>Microsoft.Azure.Cosmos</RootNamespace>
+    <PackageVersion>3.0.0.106-preview</PackageVersion>
   </PropertyGroup>
   
   <ItemGroup>
@@ -62,6 +63,12 @@
   <ItemGroup>
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="4.5.0" />
     <PackageReference Include="System.ServiceModel.Primitives" Version="4.5.0" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="">
+      <Link>LICENSE</Link>
+    </None>
   </ItemGroup>
 
   <PropertyGroup>
