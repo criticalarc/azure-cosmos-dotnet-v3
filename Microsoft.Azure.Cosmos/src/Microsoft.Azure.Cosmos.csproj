@@ -35,7 +35,7 @@
     <IncludeSource>false</IncludeSource>
     <CurrentDate>$([System.DateTime]::Now.ToString(yyyyMMdd))</CurrentDate>
     <RootNamespace>Microsoft.Azure.Cosmos</RootNamespace>
-    <PackageVersion>3.0.0.106-preview</PackageVersion>
+    <PackageVersion>3.0.0.107-preview</PackageVersion>
   </PropertyGroup>
   
   <ItemGroup>
