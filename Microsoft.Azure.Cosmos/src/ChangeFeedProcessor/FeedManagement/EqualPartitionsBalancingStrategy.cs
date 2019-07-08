@@ -38,6 +38,7 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedManagement
             this.CategorizeLeases(allLeases, allPartitions, expiredLeases, workerToPartitionCount);
 
             int partitionCount = allPartitions.Count;
+            
             int workerCount = workerToPartitionCount.Count;
             if (partitionCount <= 0)
                 return Enumerable.Empty<DocumentServiceLease>();
