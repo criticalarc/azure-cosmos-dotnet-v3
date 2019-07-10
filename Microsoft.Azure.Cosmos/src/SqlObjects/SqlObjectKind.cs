@@ -53,6 +53,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         SubqueryCollection,
         SubqueryCollectionExpression,
         SubqueryScalarExpression,
+        TagsMatch,
         TopSpec,
         UnaryScalarExpression,
         UndefinedLiteral,

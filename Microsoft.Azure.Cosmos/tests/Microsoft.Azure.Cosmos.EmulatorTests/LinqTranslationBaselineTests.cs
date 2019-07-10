@@ -141,6 +141,8 @@ namespace Microsoft.Azure.Cosmos.Services.Management.Tests.LinqProviderTests
             public string Id;
 
             public string Pk;
+
+            public string[] TagsField;
         }
 
         [TestMethod]
@@ -705,17 +707,20 @@ namespace Microsoft.Azure.Cosmos.Services.Management.Tests.LinqProviderTests
                 }
                 obj.Id = Guid.NewGuid().ToString();
                 obj.Pk = "Test";
+                obj.TagsField = new string[0];
                 return obj;
             };
             var getQuery = LinqTestsCommon.GenerateTestCosmosData(createDataObj, Records, testContainer);
 
             List<LinqTestInput> inputs = new List<LinqTestInput>();
             // Equals
-            inputs.Add(new LinqTestInput("Equals", b => getQuery(b).Select(doc => doc.StringField.Equals("str"))));
+            //inputs.Add(new LinqTestInput("Equals", b => getQuery(b).Select(doc => doc.StringField.Equals("str"))));
             // ToString
-            inputs.Add(new LinqTestInput("ToString", b => getQuery(b).Select(doc => doc.StringField.ToString())));
+            //inputs.Add(new LinqTestInput("ToString", b => getQuery(b).Select(doc => doc.StringField.ToString())));
             // get_item
-            inputs.Add(new LinqTestInput("get_item", b => getQuery(b).Select(doc => doc.EnumerableField[0])));
+            //inputs.Add(new LinqTestInput("get_item", b => getQuery(b).Select(doc => doc.EnumerableField[0])));
+            // TagsMatch
+            inputs.Add(new LinqTestInput("TagsMatch", b => getQuery(b).Where(doc => Tags.Match(doc.TagsField, new [] { "ns:name=1" }, true))));
             this.ExecuteTestSuite(inputs);
         }
 

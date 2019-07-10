@@ -373,6 +373,12 @@ namespace Microsoft.Azure.Cosmos.Sql
             return SqlSubqueryScalarExpression.Create(sqlSubqueryScalarExpression.Query.Accept(this) as SqlQuery);
         }
 
+        public override SqlObject Visit(SqlTagsMatchExpression sqlObject)
+        {
+            // No idea what this obfuscator does
+            return sqlObject;
+        }
+
         public override SqlObject Visit(SqlTopSpec sqlTopSpec)
         {
             return SqlTopSpec.Create(0);

@@ -52,6 +52,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public abstract void Visit(SqlStringPathExpression sqlObject);
         public abstract void Visit(SqlSubqueryCollection sqlObject);
         public abstract void Visit(SqlSubqueryScalarExpression sqlObject);
+        public abstract void Visit(SqlTagsMatchExpression sqlObject);
         public abstract void Visit(SqlTopSpec sqlObject);
         public abstract void Visit(SqlUnaryScalarExpression sqlObject);
         public abstract void Visit(SqlUndefinedLiteral sqlObject);
@@ -107,6 +108,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public abstract TResult Visit(SqlStringPathExpression sqlObject);
         public abstract TResult Visit(SqlSubqueryCollection sqlObject);
         public abstract TResult Visit(SqlSubqueryScalarExpression sqlObject);
+        public abstract TResult Visit(SqlTagsMatchExpression sqlObject);
         public abstract TResult Visit(SqlTopSpec sqlObject);
         public abstract TResult Visit(SqlUnaryScalarExpression sqlObject);
         public abstract TResult Visit(SqlUndefinedLiteral sqlObject);
@@ -162,6 +164,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public abstract TOutput Visit(SqlStringPathExpression sqlObject, TInput input);
         public abstract TOutput Visit(SqlSubqueryCollection sqlObject, TInput input);
         public abstract TOutput Visit(SqlSubqueryScalarExpression sqlObject, TInput input);
+        public abstract TOutput Visit(SqlTagsMatchExpression sqlObject, TInput input);
         public abstract TOutput Visit(SqlTopSpec sqlObject, TInput input);
         public abstract TOutput Visit(SqlUnaryScalarExpression sqlObject, TInput input);
         public abstract TOutput Visit(SqlUndefinedLiteral sqlObject, TInput input);
