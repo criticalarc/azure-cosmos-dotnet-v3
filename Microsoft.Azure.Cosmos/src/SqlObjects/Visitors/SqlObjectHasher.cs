@@ -575,7 +575,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlTagsMatchExpression sqlTagsMatchExpression)
         {
             int hashCode = SqlTagsMatchExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlTagsMatchExpression.MemberAccess.GetHashCode());
+            hashCode = CombineHashes(hashCode, sqlTagsMatchExpression.TagsProperty.GetHashCode());
             foreach (var tag in sqlTagsMatchExpression.Tags)
                 hashCode = CombineHashes(hashCode, tag.GetHashCode());
             return hashCode;
