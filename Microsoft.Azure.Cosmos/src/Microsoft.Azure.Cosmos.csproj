@@ -41,7 +41,7 @@
     <IncludeSource>false</IncludeSource>
     <RootNamespace>Microsoft.Azure.Cosmos</RootNamespace>
     <NoWarn>NU5125</NoWarn>
-    <PackageVersion>3.0.0.208-rc1</PackageVersion>
+    <PackageVersion>3.2.0.0-ca</PackageVersion>
   </PropertyGroup>
   
   <ItemGroup>
