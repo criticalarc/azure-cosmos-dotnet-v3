@@ -6,10 +6,10 @@ namespace Microsoft.Azure.Cosmos
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Common;
-    using Microsoft.Azure.Cosmos.CosmosElements;
     using Microsoft.Azure.Cosmos.Query;
     using Microsoft.Azure.Cosmos.Routing;
     using Microsoft.Azure.Documents;
@@ -17,7 +17,11 @@ namespace Microsoft.Azure.Cosmos
 
     internal abstract class CosmosQueryClient
     {
+        internal abstract Action<IQueryable> OnExecuteScalarQueryCallback { get; }
+
         internal abstract Task<CollectionCache> GetCollectionCacheAsync();
+
+        internal abstract Task<ContainerProperties> GetCachedContainerPropertiesAsync(CancellationToken cancellationToken);
 
         internal abstract Task<IRoutingMapProvider> GetRoutingMapProviderAsync();
 
@@ -37,7 +41,10 @@ namespace Microsoft.Azure.Cosmos
             string containerResourceId,
             QueryRequestOptions requestOptions,
             SqlQuerySpec sqlQuerySpec,
-            Action<RequestMessage> requestEnricher,
+            string continuationToken,
+            PartitionKeyRangeIdentity partitionKeyRange,
+            bool isContinuationExpected,
+            int pageSize,
             CancellationToken cancellationToken);
 
         internal abstract Task<PartitionedQueryExecutionInfo> ExecuteQueryPlanRequestAsync(

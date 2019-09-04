@@ -10,8 +10,8 @@ namespace Microsoft.Azure.Cosmos.Query
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos;
+    using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Cosmos.CosmosElements;
-    using Microsoft.Azure.Cosmos.Internal;
     using Microsoft.Azure.Cosmos.Query.ExecutionComponent;
     using Microsoft.Azure.Documents;
 
@@ -150,6 +150,13 @@ namespace Microsoft.Azure.Cosmos.Query
 
             QueryInfo queryInfo = partitionedQueryExecutionInfo.QueryInfo;
 
+            int actualPageSize = initialPageSize;
+            if (queryInfo.HasGroupBy)
+            {
+                initialPageSize = int.MaxValue;
+                constructorParams.FeedOptions.MaxItemCount = int.MaxValue;
+            }
+
             Func<string, Task<IDocumentQueryExecutionComponent>> createOrderByComponentFunc = async (continuationToken) =>
             {
                 CrossPartitionQueryExecutionContext.CrossPartitionInitParams initParams = new CrossPartitionQueryExecutionContext.CrossPartitionInitParams(
@@ -184,6 +191,7 @@ namespace Microsoft.Azure.Cosmos.Query
                 partitionedQueryExecutionInfo.QueryInfo,
                 initialPageSize,
                 requestContinuation,
+                constructorParams.FeedOptions.EnableGroupBy,
                 createOrderByComponentFunc,
                 createParallelComponentFunc));
         }
@@ -214,6 +222,15 @@ namespace Microsoft.Azure.Cosmos.Query
                     "{0}, CorrelatedActivityId: {1} | Pipelined~Context.CreateAsync",
                     DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
                     constructorParams.CorrelatedActivityId));
+
+            QueryInfo queryInfo = partitionedQueryExecutionInfo.QueryInfo;
+
+            int actualPageSize = initialPageSize;
+            if (queryInfo.HasGroupBy)
+            {
+                initialPageSize = int.MaxValue;
+                constructorParams.QueryRequestOptions.MaxItemCount = int.MaxValue;
+            }
 
             Func<string, Task<IDocumentQueryExecutionComponent>> createOrderByComponentFunc = async (continuationToken) =>
             {
@@ -249,6 +266,7 @@ namespace Microsoft.Azure.Cosmos.Query
                partitionedQueryExecutionInfo.QueryInfo,
                initialPageSize,
                requestContinuation,
+               constructorParams.QueryRequestOptions.EnableGroupBy,
                createOrderByComponentFunc,
                createParallelComponentFunc));
         }
@@ -257,6 +275,7 @@ namespace Microsoft.Azure.Cosmos.Query
             QueryInfo queryInfo,
             int initialPageSize,
             string requestContinuation,
+            bool allowGroupBy,
             Func<string, Task<IDocumentQueryExecutionComponent>> createOrderByQueryExecutionContext,
             Func<string, Task<IDocumentQueryExecutionComponent>> createParallelQueryExecutionContext)
         {
@@ -270,13 +289,15 @@ namespace Microsoft.Azure.Cosmos.Query
                 createComponentFunc = createParallelQueryExecutionContext;
             }
 
-            if (queryInfo.HasAggregates)
+            if (queryInfo.HasAggregates && !queryInfo.HasGroupBy)
             {
                 Func<string, Task<IDocumentQueryExecutionComponent>> createSourceCallback = createComponentFunc;
                 createComponentFunc = async (continuationToken) =>
                 {
                     return await AggregateDocumentQueryExecutionComponent.CreateAsync(
                         queryInfo.Aggregates,
+                        queryInfo.GroupByAliasToAggregateType,
+                        queryInfo.HasSelectValue,
                         continuationToken,
                         createSourceCallback);
                 };
@@ -291,6 +312,24 @@ namespace Microsoft.Azure.Cosmos.Query
                         continuationToken,
                         createSourceCallback,
                         queryInfo.DistinctType);
+                };
+            }
+
+            if (queryInfo.HasGroupBy)
+            {
+                if (!allowGroupBy)
+                {
+                    throw new ArgumentException("Cross Partition GROUP BY is not supported.");
+                }
+
+                Func<string, Task<IDocumentQueryExecutionComponent>> createSourceCallback = createComponentFunc;
+                createComponentFunc = async (continuationToken) =>
+                {
+                    return await GroupByDocumentQueryExecutionComponent.CreateAsync(
+                        continuationToken,
+                        createSourceCallback,
+                        queryInfo.GroupByAliasToAggregateType,
+                        queryInfo.HasSelectValue);
                 };
             }
 
@@ -387,7 +426,8 @@ namespace Microsoft.Azure.Cosmos.Query
                     dynamics,
                     queryResponse.Count,
                     queryResponse.ResponseLengthBytes,
-                    queryResponse.QueryHeaders.CloneKnownProperties());
+                    queryResponse.QueryHeaders.CloneKnownProperties(),
+                    queryMetrics: queryResponse.queryMetrics);
             }
             catch (Exception)
             {

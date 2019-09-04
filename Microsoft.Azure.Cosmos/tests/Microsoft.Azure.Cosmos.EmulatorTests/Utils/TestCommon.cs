@@ -43,6 +43,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
 
         private static readonly int serverStalenessIntervalInSeconds;
         private static readonly int masterStalenessIntervalInSeconds;
+        public static readonly CosmosSerializer Serializer = new CosmosJsonDotNetSerializer();
 
         static TestCommon()
         {
@@ -50,12 +51,19 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             TestCommon.masterStalenessIntervalInSeconds = int.Parse(ConfigurationManager.AppSettings["MasterStalenessIntervalInSeconds"], CultureInfo.InvariantCulture);
         }
 
-        internal static CosmosClientBuilder GetDefaultConfiguration()
+        internal static (string endpoint, string authKey) GetAccountInfo()
         {
             string authKey = ConfigurationManager.AppSettings["MasterKey"];
             string endpoint = ConfigurationManager.AppSettings["GatewayEndpoint"];
 
-            return new CosmosClientBuilder(accountEndpoint: endpoint, accountKey: authKey);
+            return (endpoint, authKey);
+        }
+
+        internal static CosmosClientBuilder GetDefaultConfiguration()
+        {
+            (string endpoint, string authKey) accountInfo = TestCommon.GetAccountInfo();
+
+            return new CosmosClientBuilder(accountEndpoint: accountInfo.endpoint, authKeyOrResourceToken: accountInfo.authKey);
         }
 
         internal static CosmosClient CreateCosmosClient(Action<CosmosClientBuilder> customizeClientBuilder = null)
@@ -67,6 +75,14 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             }
 
             return cosmosClientBuilder.Build();
+        }
+
+        internal static CosmosClient CreateCosmosClient(CosmosClientOptions clientOptions, string resourceToken = null)
+        {
+            string authKey = resourceToken ?? ConfigurationManager.AppSettings["MasterKey"];
+            string endpoint = ConfigurationManager.AppSettings["GatewayEndpoint"];
+
+            return new CosmosClient(endpoint, authKey, clientOptions);
         }
 
         internal static CosmosClient CreateCosmosClient(
@@ -225,11 +241,11 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             INameValueCollection localHeaders = null;
             if (headers != null)
             {
-                localHeaders = new StringKeyValueCollection(headers);
+                localHeaders = new DictionaryNameValueCollection(headers);
             }
             else
             {
-                localHeaders = new StringKeyValueCollection();
+                localHeaders = new DictionaryNameValueCollection();
             }
 
             string continuationToken = null;
@@ -397,11 +413,11 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             INameValueCollection localHeaders = null;
             if (headers != null)
             {
-                localHeaders = new StringKeyValueCollection(headers);
+                localHeaders = new DictionaryNameValueCollection(headers);
             }
             else
             {
-                localHeaders = new StringKeyValueCollection();
+                localHeaders = new DictionaryNameValueCollection();
             }
 
             string continuationToken = null;
@@ -653,8 +669,8 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
 
                 for (int j = 0; j < 100; j++)
                 {
-                    sb.Append("{\"id\":\"documentId" + (100 * i + j));
-                    sb.Append("\",\"partitionKey\":" + (100 * i + j));
+                    sb.Append("{\"id\":\"documentId" + ((100 * i) + j));
+                    sb.Append("\",\"partitionKey\":" + ((100 * i) + j));
                     for (int k = 1; k < 20; k++)
                     {
                         sb.Append(",\"field_" + k + "\":" + random.Next(100000));

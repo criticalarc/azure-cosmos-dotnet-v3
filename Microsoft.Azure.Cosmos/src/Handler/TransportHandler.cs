@@ -8,7 +8,6 @@ namespace Microsoft.Azure.Cosmos.Handlers
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.Azure.Cosmos.Internal;
     using Microsoft.Azure.Documents;
 
     //TODO: write unit test for this handler
@@ -42,6 +41,10 @@ namespace Microsoft.Azure.Cosmos.Handlers
             catch (DocumentClientException ex)
             {
                 return ex.ToCosmosResponseMessage(request);
+            }
+            catch (CosmosException ce)
+            {
+                return ce.ToCosmosResponseMessage(request);
             }
             catch (AggregateException ex)
             {
@@ -100,12 +103,7 @@ namespace Microsoft.Azure.Cosmos.Handlers
             CosmosException cosmosException = exception as CosmosException;
             if (cosmosException != null)
             {
-                return new ResponseMessage(
-                    headers: cosmosException.Headers,
-                    requestMessage: request,
-                    errorMessage: cosmosException.Message,
-                    statusCode: cosmosException.StatusCode,
-                    error: cosmosException.Error);
+                return cosmosException.ToCosmosResponseMessage(request);
             }
 
             return null;

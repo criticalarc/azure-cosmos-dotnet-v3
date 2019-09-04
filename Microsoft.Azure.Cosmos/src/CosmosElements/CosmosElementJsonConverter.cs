@@ -6,14 +6,20 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using System.Linq;
     using System.Text;
     using Microsoft.Azure.Cosmos.Json.NewtonsoftInterop;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
 
-    internal sealed class CosmosElementJsonConverter : JsonConverter
+#if INTERNAL
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
+#pragma warning disable SA1600 // Elements should be documented
+    public
+#else
+    internal
+#endif
+    sealed class CosmosElementJsonConverter : JsonConverter
     {
         private static readonly HashSet<Type> NumberTypes = new HashSet<Type>()
         {
@@ -84,4 +90,8 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
             cosmosElement.WriteTo(writerInterop);
         }
     }
+#if INTERNAL
+#pragma warning restore SA1600 // Elements should be documented
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
+#endif
 }

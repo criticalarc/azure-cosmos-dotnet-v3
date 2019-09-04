@@ -12,13 +12,18 @@ namespace Microsoft.Azure.Cosmos.Json
     /// Wrapper class that implements a Newtonsoft JsonReader,
     /// but forwards all the calls to a CosmosDB JSON reader.
     /// </summary>
-    internal sealed class JsonCosmosDBReader : Newtonsoft.Json.JsonReader
+#if INTERNAL
+    public
+#else
+    internal
+#endif
+    sealed class JsonCosmosDBReader : Newtonsoft.Json.JsonReader
     {
         /// <summary>
         /// Singleton boxed value for null.
         /// </summary>
         private static readonly object Null = null;
-        
+
         /// <summary>
         /// Singleton boxed value for false.
         /// </summary>

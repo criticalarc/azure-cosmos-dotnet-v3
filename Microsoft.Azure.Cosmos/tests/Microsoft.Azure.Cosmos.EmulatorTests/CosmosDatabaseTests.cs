@@ -6,14 +6,11 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.Azure.Cosmos.Internal;
-    using Microsoft.Azure.Documents;
+    using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
 
     [TestClass]
@@ -153,17 +150,9 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
         [TestMethod]
         public async Task ImplicitConversion()
         {
-            string databaseName = Guid.NewGuid().ToString();
-
-            DatabaseResponse cosmosDatabaseResponse = await this.cosmosClient.GetDatabase(databaseName).ReadAsync(cancellationToken: this.cancellationToken);
+            DatabaseResponse cosmosDatabaseResponse = await this.CreateDatabaseHelper();
             Cosmos.Database cosmosDatabase = cosmosDatabaseResponse;
             DatabaseProperties cosmosDatabaseSettings = cosmosDatabaseResponse;
-            Assert.IsNotNull(cosmosDatabase);
-            Assert.IsNull(cosmosDatabaseSettings);
-
-            cosmosDatabaseResponse = await this.CreateDatabaseHelper();
-            cosmosDatabase = cosmosDatabaseResponse;
-            cosmosDatabaseSettings = cosmosDatabaseResponse;
             Assert.IsNotNull(cosmosDatabase);
             Assert.IsNotNull(cosmosDatabaseSettings);
 
@@ -177,11 +166,15 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
         [TestMethod]
         public async Task DropNonExistingDatabase()
         {
-            DatabaseResponse response = await this.cosmosClient.GetDatabase(Guid.NewGuid().ToString()).DeleteAsync(cancellationToken: this.cancellationToken);
-
-            string activityId = response.ActivityId;
-            double? ru = response.RequestCharge;
-            Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+            try
+            {
+                DatabaseResponse response = await this.cosmosClient.GetDatabase(Guid.NewGuid().ToString()).DeleteAsync(cancellationToken: this.cancellationToken);
+                Assert.Fail();
+            }
+            catch (CosmosException ex)
+            {
+                Assert.AreEqual(HttpStatusCode.NotFound, ex.StatusCode);
+            }
         }
 
         [TestMethod]
@@ -215,8 +208,15 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             Assert.AreEqual(HttpStatusCode.Created, createResponse.StatusCode);
 
             Cosmos.Database cosmosDatabase = createResponse;
-            int? readThroughput = await ((DatabaseCore)cosmosDatabase).ReadProvisionedThroughputAsync();
-            Assert.IsNull(readThroughput);
+            try
+            {
+                int? readThroughput = await ((DatabaseCore)cosmosDatabase).ReadThroughputAsync();
+                Assert.Fail("Should through not found exception as throughput is not configured");
+            }
+            catch (CosmosException exception)
+            {
+                Assert.AreEqual(HttpStatusCode.NotFound, exception.StatusCode);
+            }
 
             await cosmosDatabase.DeleteAsync();
         }
@@ -230,7 +230,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             Assert.AreEqual(HttpStatusCode.Created, createResponse.StatusCode);
 
             Cosmos.Database cosmosDatabase = createResponse;
-            int? readThroughput = await ((DatabaseCore)cosmosDatabase).ReadProvisionedThroughputAsync();
+            int? readThroughput = await cosmosDatabase.ReadThroughputAsync();
             Assert.AreEqual(throughput, readThroughput);
 
             string containerId = Guid.NewGuid().ToString();
@@ -239,8 +239,14 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             Assert.AreEqual(HttpStatusCode.Created, containerResponse.StatusCode);
 
             Container container = containerResponse;
-            readThroughput = await ((ContainerCore)container).ReadProvisionedThroughputAsync();
-            Assert.IsNull(readThroughput);
+            try
+            {
+                readThroughput = await ((ContainerCore)container).ReadThroughputAsync();
+                Assert.Fail("Should through not found exception as throughput is not configured");
+            } catch (CosmosException exception)
+            {
+                Assert.AreEqual(HttpStatusCode.NotFound, exception.StatusCode);
+            }
 
             await container.DeleteContainerAsync();
             await cosmosDatabase.DeleteAsync();
@@ -282,8 +288,15 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             Assert.AreEqual(readThroughputResponse.Resource.Throughput.Value + 1000, replaceThroughputResponse.Resource.Throughput.Value);
 
             Container container = containerResponse;
-            readThroughputResponse = await container.ReadThroughputAsync(new RequestOptions());
-            Assert.IsNull(readThroughputResponse.Resource);
+            try
+            {
+                readThroughputResponse = await container.ReadThroughputAsync(new RequestOptions());
+                Assert.Fail("Should through not found exception as throughput is not configured");
+            }
+            catch (CosmosException exception)
+            {
+                Assert.AreEqual(HttpStatusCode.NotFound, exception.StatusCode);
+            }
 
             await container.DeleteContainerAsync();
             await cosmosDatabase.DeleteAsync();

@@ -75,7 +75,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            return new FeedStatelessIteratorCore(
+            return new FeedIteratorCore(
                this.clientContext,
                this.container.LinkUri,
                ResourceType.StoredProcedure,
@@ -94,9 +94,9 @@ namespace Microsoft.Azure.Cosmos.Scripts
                 continuationToken,
                 requestOptions);
 
-            return new FeedStatelessIteratorCore<T>(
+            return new FeedIteratorCore<T>(
                 databaseStreamIterator,
-                this.clientContext.ResponseFactory.CreateResultSetQueryResponse<T>);
+                this.clientContext.ResponseFactory.CreateQueryFeedResponse<T>);
         }
 
         public override Task<StoredProcedureResponse> ReadStoredProcedureAsync(
@@ -148,27 +148,17 @@ namespace Microsoft.Azure.Cosmos.Scripts
                 cancellationToken: cancellationToken);
         }
 
-        public override Task<StoredProcedureExecuteResponse<TOutput>> ExecuteStoredProcedureAsync<TInput, TOutput>(
+        public override Task<StoredProcedureExecuteResponse<TOutput>> ExecuteStoredProcedureAsync<TOutput>(
             string storedProcedureId,
-            TInput input,
             Cosmos.PartitionKey partitionKey,
+            dynamic[] parameters,
             StoredProcedureRequestOptions requestOptions = null,
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            Stream parametersStream;
-            if (input != null && !input.GetType().IsArray)
-            {
-                parametersStream = this.clientContext.CosmosSerializer.ToStream<TInput[]>(new TInput[1] { input });
-            }
-            else
-            {
-                parametersStream = this.clientContext.CosmosSerializer.ToStream<TInput>(input);
-            }
-
             Task<ResponseMessage> response = this.ExecuteStoredProcedureStreamAsync(
-                partitionKey: partitionKey,
                 storedProcedureId: storedProcedureId,
-                streamPayload: parametersStream,
+                partitionKey: partitionKey,
+                parameters: parameters,
                 requestOptions: requestOptions,
                 cancellationToken: cancellationToken);
 
@@ -177,8 +167,8 @@ namespace Microsoft.Azure.Cosmos.Scripts
 
         public override Task<ResponseMessage> ExecuteStoredProcedureStreamAsync(
             string storedProcedureId,
-            Stream streamPayload,
             Cosmos.PartitionKey partitionKey,
+            dynamic[] parameters,
             StoredProcedureRequestOptions requestOptions = null,
             CancellationToken cancellationToken = default(CancellationToken))
         {
@@ -188,6 +178,12 @@ namespace Microsoft.Azure.Cosmos.Scripts
             }
 
             ContainerCore.ValidatePartitionKey(partitionKey, requestOptions);
+
+            Stream streamPayload = null;
+            if (parameters != null)
+            {
+                streamPayload = this.clientContext.CosmosSerializer.ToStream<dynamic[]>(parameters);
+            }
 
             Uri linkUri = this.clientContext.CreateLink(
                 parentLink: this.container.LinkUri.OriginalString,
@@ -271,7 +267,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            return new FeedStatelessIteratorCore(
+            return new FeedIteratorCore(
                this.clientContext,
                this.container.LinkUri,
                ResourceType.Trigger,
@@ -290,9 +286,9 @@ namespace Microsoft.Azure.Cosmos.Scripts
                 continuationToken,
                 requestOptions);
 
-            return new FeedStatelessIteratorCore<T>(
+            return new FeedIteratorCore<T>(
                 databaseStreamIterator,
-                this.clientContext.ResponseFactory.CreateResultSetQueryResponse<T>);
+                this.clientContext.ResponseFactory.CreateQueryFeedResponse<T>);
         }
 
         public override Task<TriggerResponse> ReadTriggerAsync(
@@ -426,7 +422,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            return new FeedStatelessIteratorCore(
+            return new FeedIteratorCore(
                this.clientContext,
                this.container.LinkUri,
                ResourceType.UserDefinedFunction,
@@ -445,9 +441,9 @@ namespace Microsoft.Azure.Cosmos.Scripts
                 continuationToken,
                 requestOptions);
 
-            return new FeedStatelessIteratorCore<T>(
+            return new FeedIteratorCore<T>(
                 databaseStreamIterator,
-                this.clientContext.ResponseFactory.CreateResultSetQueryResponse<T>);
+                this.clientContext.ResponseFactory.CreateQueryFeedResponse<T>);
         }
 
         public override Task<UserDefinedFunctionResponse> ReadUserDefinedFunctionAsync(

@@ -13,9 +13,9 @@ namespace Microsoft.Azure.Cosmos.SampleCodeForDocs
 
         internal void intitialize()
         {
-            cosmosClient = new CosmosClient(
+            this.cosmosClient = new CosmosClient(
                 accountEndpoint: "TestAccount",
-                accountKey: "TestKey",
+                authKeyOrResourceToken: "TestKey",
                 clientOptions: new CosmosClientOptions());
         }
 
@@ -31,13 +31,14 @@ namespace Microsoft.Azure.Cosmos.SampleCodeForDocs
             ItemResponse<dynamic> itemResponse = await container.CreateItemAsync<dynamic>(
                 item: new { id = itemId, pk = partitionKey },
                 partitionKey: new PartitionKey(partitionKey));
-            var requestCharge = itemResponse.RequestCharge;
+            double requestCharge = itemResponse.RequestCharge;
 
             Scripts scripts = container.Scripts;
-            StoredProcedureExecuteResponse<object> sprocResponse = await scripts.ExecuteStoredProcedureAsync<object, object>(
+            StoredProcedureExecuteResponse<object> sprocResponse = await scripts.ExecuteStoredProcedureAsync<object>(
                 storedProcedureId: storedProcedureId,
-                input: new object(),
-                partitionKey: new PartitionKey(partitionKey));
+                partitionKey: new PartitionKey(partitionKey),
+                parameters: new dynamic[] { new object() });
+
             requestCharge = sprocResponse.RequestCharge;
 
             FeedIterator<dynamic> feedIterator = container.GetItemQueryIterator<dynamic>(

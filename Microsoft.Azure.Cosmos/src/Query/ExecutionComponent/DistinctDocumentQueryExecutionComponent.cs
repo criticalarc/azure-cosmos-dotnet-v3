@@ -9,8 +9,8 @@ namespace Microsoft.Azure.Cosmos.Query.ExecutionComponent
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos;
+    using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Cosmos.CosmosElements;
-    using Microsoft.Azure.Cosmos.Internal;
     using Microsoft.Azure.Documents;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
@@ -115,7 +115,7 @@ namespace Microsoft.Azure.Cosmos.Query.ExecutionComponent
                 }
             }
 
-            string updatedContinuationToken; 
+            string updatedContinuationToken;
             if (!this.IsDone)
             {
                 updatedContinuationToken = new DistinctContinuationToken(
@@ -133,7 +133,8 @@ namespace Microsoft.Azure.Cosmos.Query.ExecutionComponent
                 distinctResults,
                 distinctResults.Count,
                 cosmosQueryResponse.ResponseLengthBytes,
-                cosmosQueryResponse.QueryHeaders.CloneKnownProperties(updatedContinuationToken, disallowContinuationTokenMessage));
+                cosmosQueryResponse.QueryHeaders.CloneKnownProperties(updatedContinuationToken, disallowContinuationTokenMessage),
+                cosmosQueryResponse.queryMetrics);
         }
 
         /// <summary>

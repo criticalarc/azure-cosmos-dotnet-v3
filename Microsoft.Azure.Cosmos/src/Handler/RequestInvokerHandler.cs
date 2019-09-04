@@ -10,7 +10,6 @@ namespace Microsoft.Azure.Cosmos.Handlers
     using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.Azure.Cosmos.Scripts;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Routing;
 
@@ -20,10 +19,13 @@ namespace Microsoft.Azure.Cosmos.Handlers
     internal class RequestInvokerHandler : RequestHandler
     {
         private readonly CosmosClient client;
+        private Cosmos.ConsistencyLevel? AccountConsistencyLevel = null;
+        private Cosmos.ConsistencyLevel? RequestedClientConsistencyLevel;
 
         public RequestInvokerHandler(CosmosClient client)
         {
             this.client = client;
+            this.RequestedClientConsistencyLevel = this.client.ClientOptions.ConsistencyLevel;
         }
 
         public override async Task<ResponseMessage> SendAsync(
@@ -40,37 +42,9 @@ namespace Microsoft.Azure.Cosmos.Handlers
             {
                 // Fill request options
                 promotedRequestOptions.PopulateRequestOptions(request);
-
-                // Validate the request consistency compatibility with account consistency
-                // Type based access context for requested consistency preferred for performance
-                Cosmos.ConsistencyLevel? consistencyLevel = null;
-                if (promotedRequestOptions is ItemRequestOptions)
-                {
-                    consistencyLevel = (promotedRequestOptions as ItemRequestOptions).ConsistencyLevel;
-                }
-                else if (promotedRequestOptions is QueryRequestOptions)
-                {
-                    consistencyLevel = (promotedRequestOptions as QueryRequestOptions).ConsistencyLevel;
-                }
-                else if (promotedRequestOptions is StoredProcedureRequestOptions)
-                {
-                    consistencyLevel = (promotedRequestOptions as StoredProcedureRequestOptions).ConsistencyLevel;
-                }
-
-                if (consistencyLevel.HasValue)
-                {
-                    Cosmos.ConsistencyLevel accountConsistency = await this.client.GetAccountConsistencyLevelAsync();
-                    if (!ValidationHelpers.ValidateConsistencyLevel(accountConsistency, consistencyLevel.Value))
-                    {
-                        throw new ArgumentException(string.Format(
-                                CultureInfo.CurrentUICulture,
-                                RMResources.InvalidConsistencyLevel,
-                                consistencyLevel.Value.ToString(),
-                                accountConsistency));
-                    }
-                }
             }
 
+            await this.ValidateAndSetConsistencyLevelAsync(request);
             await this.client.DocumentClient.EnsureValidClientAsync();
             await request.AssertPartitioningDetailsAsync(this.client, cancellationToken);
             this.FillMultiMasterContext(request);
@@ -151,6 +125,10 @@ namespace Microsoft.Azure.Cosmos.Handlers
                     {
                         return dce.ToCosmosResponseMessage(request);
                     }
+                    catch (CosmosException ce)
+                    {
+                        return ce.ToCosmosResponseMessage(request);
+                    }
                 }
                 else
                 {
@@ -205,6 +183,44 @@ namespace Microsoft.Azure.Cosmos.Handlers
             if (this.client.DocumentClient.UseMultipleWriteLocations)
             {
                 request.Headers.Set(HttpConstants.HttpHeaders.AllowTentativeWrites, bool.TrueString);
+            }
+        }
+
+        private async Task ValidateAndSetConsistencyLevelAsync(RequestMessage requestMessage)
+        {
+            // Validate the request consistency compatibility with account consistency
+            // Type based access context for requested consistency preferred for performance
+            Cosmos.ConsistencyLevel? consistencyLevel = null;
+            RequestOptions promotedRequestOptions = requestMessage.RequestOptions;
+            if (promotedRequestOptions != null && promotedRequestOptions.BaseConsistencyLevel.HasValue)
+            {
+                consistencyLevel = promotedRequestOptions.BaseConsistencyLevel;
+            }
+            else if (this.RequestedClientConsistencyLevel.HasValue)
+            {
+                consistencyLevel = this.RequestedClientConsistencyLevel;
+            }
+
+            if (consistencyLevel.HasValue)
+            {
+                if (!this.AccountConsistencyLevel.HasValue)
+                {
+                    this.AccountConsistencyLevel = await this.client.GetAccountConsistencyLevelAsync();
+                }
+
+                if (ValidationHelpers.IsValidConsistencyLevelOverwrite(this.AccountConsistencyLevel.Value, consistencyLevel.Value))
+                {
+                    // ConsistencyLevel compatibility with back-end configuration will be done by RequestInvokeHandler
+                    requestMessage.Headers.Add(HttpConstants.HttpHeaders.ConsistencyLevel, consistencyLevel.Value.ToString());
+                }
+                else
+                {
+                    throw new ArgumentException(string.Format(
+                            CultureInfo.CurrentUICulture,
+                            RMResources.InvalidConsistencyLevel,
+                            consistencyLevel.Value.ToString(),
+                            this.AccountConsistencyLevel));
+                }
             }
         }
     }

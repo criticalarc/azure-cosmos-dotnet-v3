@@ -14,7 +14,7 @@ namespace Microsoft.Azure.Cosmos.Json.NewtonsoftInterop
         private readonly StringBuilder stringBuilder;
 
         private JsonNewtonsoftWriter(
-            Newtonsoft.Json.JsonWriter writer, 
+            Newtonsoft.Json.JsonWriter writer,
             StringBuilder stringBuilder)
             : base(true)
         {

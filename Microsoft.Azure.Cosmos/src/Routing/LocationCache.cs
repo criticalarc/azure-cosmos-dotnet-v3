@@ -10,6 +10,7 @@ namespace Microsoft.Azure.Cosmos.Routing
     using System.Collections.ObjectModel;
     using System.Linq;
     using System.Net;
+    using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Documents;
 
     /// <summary>
@@ -79,8 +80,9 @@ namespace Microsoft.Azure.Cosmos.Routing
         {
             get
             {
-                if (this.locationUnavailablityInfoByEndpoint.Count > 0
-                    && DateTime.UtcNow - this.lastCacheUpdateTimestamp > this.unavailableLocationsExpirationTime)
+                // Hot-path: avoid ConcurrentDictionary methods which acquire locks
+                if (DateTime.UtcNow - this.lastCacheUpdateTimestamp > this.unavailableLocationsExpirationTime
+                    && this.locationUnavailablityInfoByEndpoint.Any())
                 {
                     this.UpdateLocationCache();
                 }
@@ -98,8 +100,9 @@ namespace Microsoft.Azure.Cosmos.Routing
         {
             get
             {
-                if (this.locationUnavailablityInfoByEndpoint.Count > 0
-                    && DateTime.UtcNow - this.lastCacheUpdateTimestamp > this.unavailableLocationsExpirationTime)
+                // Hot-path: avoid ConcurrentDictionary methods which acquire locks
+                if (DateTime.UtcNow - this.lastCacheUpdateTimestamp > this.unavailableLocationsExpirationTime
+                    && this.locationUnavailablityInfoByEndpoint.Any())
                 {
                     this.UpdateLocationCache();
                 }
@@ -198,7 +201,7 @@ namespace Microsoft.Azure.Cosmos.Routing
 
             int locationIndex = request.RequestContext.LocationIndexToRoute.GetValueOrDefault(0);
 
-            Uri locationEndpointToRoute = this.defaultEndpoint; 
+            Uri locationEndpointToRoute = this.defaultEndpoint;
 
             if (!request.RequestContext.UsePreferredLocations.GetValueOrDefault(true) // Should not use preferred location ?
                 || (request.OperationType.IsWriteOperation() && !this.CanUseMultipleWriteLocations(request)))
@@ -381,32 +384,32 @@ namespace Microsoft.Azure.Cosmos.Routing
             Uri unavailableEndpoint,
             OperationType unavailableOperationType)
         {
-                DateTime currentTime = DateTime.UtcNow;
-                LocationUnavailabilityInfo updatedInfo = this.locationUnavailablityInfoByEndpoint.AddOrUpdate(
-                    unavailableEndpoint,
-                    (Uri endpoint) =>
+            DateTime currentTime = DateTime.UtcNow;
+            LocationUnavailabilityInfo updatedInfo = this.locationUnavailablityInfoByEndpoint.AddOrUpdate(
+                unavailableEndpoint,
+                (Uri endpoint) =>
+                {
+                    return new LocationUnavailabilityInfo()
                     {
-                        return new LocationUnavailabilityInfo()
-                        {
-                            LastUnavailabilityCheckTimeStamp = currentTime,
-                            UnavailableOperations = unavailableOperationType,
-                        };
-                    },
-                    (Uri endpoint, LocationUnavailabilityInfo info) =>
-                    {
-                        info.LastUnavailabilityCheckTimeStamp = currentTime;
-                        info.UnavailableOperations |= unavailableOperationType;
-                        return info;
-                    });
+                        LastUnavailabilityCheckTimeStamp = currentTime,
+                        UnavailableOperations = unavailableOperationType,
+                    };
+                },
+                (Uri endpoint, LocationUnavailabilityInfo info) =>
+                {
+                    info.LastUnavailabilityCheckTimeStamp = currentTime;
+                    info.UnavailableOperations |= unavailableOperationType;
+                    return info;
+                });
 
-                this.UpdateLocationCache();
+            this.UpdateLocationCache();
 
-                DefaultTrace.TraceInformation(
-                    "Endpoint {0} unavailable for {1} added/updated to unavailableEndpoints with timestamp {2}",
-                    unavailableEndpoint,
-                    unavailableOperationType,
-                    updatedInfo.LastUnavailabilityCheckTimeStamp);
-            }
+            DefaultTrace.TraceInformation(
+                "Endpoint {0} unavailable for {1} added/updated to unavailableEndpoints with timestamp {2}",
+                unavailableEndpoint,
+                unavailableOperationType,
+                updatedInfo.LastUnavailabilityCheckTimeStamp);
+        }
 
         private void UpdateLocationCache(
             IEnumerable<AccountRegion> writeLocations = null,
@@ -517,7 +520,7 @@ namespace Microsoft.Azure.Cosmos.Routing
             }
 
             return endpoints.AsReadOnly();
-        }        
+        }
 
         private ReadOnlyDictionary<string, Uri> GetEndpointByLocation(IEnumerable<AccountRegion> locations, out ReadOnlyCollection<string> orderedLocations)
         {

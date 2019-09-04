@@ -5,7 +5,6 @@
 namespace Microsoft.Azure.Cosmos
 {
     using System;
-    using System.Net;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Scripts;
 
@@ -29,12 +28,23 @@ namespace Microsoft.Azure.Cosmos
             this.cosmosSerializer = userJsonSerializer;
         }
 
-        internal FeedResponse<T> CreateResultSetQueryResponse<T>(
+        internal FeedResponse<T> CreateQueryFeedResponse<T>(
             ResponseMessage cosmosResponseMessage)
         {
-            return FeedIteratorCore<T>.CreateCosmosQueryResponse(
-                cosmosResponseMessage,
-                this.cosmosSerializer);
+            //Throw the exception
+            cosmosResponseMessage.EnsureSuccessStatusCode();
+
+            QueryResponse queryResponse = cosmosResponseMessage as QueryResponse;
+            if (queryResponse != null)
+            {
+                return QueryResponse<T>.CreateResponse<T>(
+                    cosmosQueryResponse: queryResponse,
+                    jsonSerializer: this.cosmosSerializer);
+            }
+
+            return ReadFeedResponse<T>.CreateResponse<T>(
+                       cosmosResponseMessage,
+                       this.cosmosSerializer);
         }
 
         internal Task<ItemResponse<T>> CreateItemResponseAsync<T>(
@@ -46,7 +56,8 @@ namespace Microsoft.Azure.Cosmos
                 return new ItemResponse<T>(
                     cosmosResponseMessage.StatusCode,
                     cosmosResponseMessage.Headers,
-                    item);
+                    item,
+                    cosmosResponseMessage.Diagnostics);
             });
         }
 
@@ -62,6 +73,36 @@ namespace Microsoft.Azure.Cosmos
                     cosmosResponseMessage.Headers,
                     containerProperties,
                     container);
+            });
+        }
+
+        internal Task<UserResponse> CreateUserResponseAsync(
+            User user,
+            Task<ResponseMessage> cosmosResponseMessageTask)
+        {
+            return this.ProcessMessageAsync(cosmosResponseMessageTask, (cosmosResponseMessage) =>
+            {
+                UserProperties userProperties = this.ToObjectInternal<UserProperties>(cosmosResponseMessage, this.propertiesSerializer);
+                return new UserResponse(
+                    cosmosResponseMessage.StatusCode,
+                    cosmosResponseMessage.Headers,
+                    userProperties,
+                    user);
+            });
+        }
+
+        internal Task<PermissionResponse> CreatePermissionResponseAsync(
+            Permission permission,
+            Task<ResponseMessage> cosmosResponseMessageTask)
+        {
+            return this.ProcessMessageAsync(cosmosResponseMessageTask, (cosmosResponseMessage) =>
+            {
+                PermissionProperties permissionProperties = this.ToObjectInternal<PermissionProperties>(cosmosResponseMessage, this.propertiesSerializer);
+                return new PermissionResponse(
+                    cosmosResponseMessage.StatusCode,
+                    cosmosResponseMessage.Headers,
+                    permissionProperties,
+                    permission);
             });
         }
 
@@ -151,13 +192,6 @@ namespace Microsoft.Azure.Cosmos
 
         internal T ToObjectInternal<T>(ResponseMessage cosmosResponseMessage, CosmosSerializer jsonSerializer)
         {
-            // Not finding something is part of a normal work-flow and should not be an exception.
-            // This prevents the unnecessary overhead of an exception
-            if (cosmosResponseMessage.StatusCode == HttpStatusCode.NotFound)
-            {
-                return default(T);
-            }
-
             //Throw the exception
             cosmosResponseMessage.EnsureSuccessStatusCode();
 

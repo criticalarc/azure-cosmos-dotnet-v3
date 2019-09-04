@@ -34,7 +34,7 @@ namespace Microsoft.Azure.Cosmos
         }
 
         public override Task<ResponseMessage> DeleteAsync(
-            ConflictProperties conflict, 
+            ConflictProperties conflict,
             PartitionKey partitionKey,
             CancellationToken cancellationToken = default(CancellationToken))
         {
@@ -99,7 +99,7 @@ namespace Microsoft.Azure.Cosmos
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            return new FeedStatelessIteratorCore(
+            return new FeedIteratorCore(
                this.clientContext,
                this.container.LinkUri,
                ResourceType.Conflict,
@@ -118,14 +118,14 @@ namespace Microsoft.Azure.Cosmos
                 continuationToken,
                 requestOptions);
 
-            return new FeedStatelessIteratorCore<T>(
+            return new FeedIteratorCore<T>(
                 databaseStreamIterator,
-                this.clientContext.ResponseFactory.CreateResultSetQueryResponse<T>);
+                this.clientContext.ResponseFactory.CreateQueryFeedResponse<T>);
         }
 
         public override async Task<ItemResponse<T>> ReadCurrentAsync<T>(
-            ConflictProperties cosmosConflict, 
-            PartitionKey partitionKey, 
+            ConflictProperties cosmosConflict,
+            PartitionKey partitionKey,
             CancellationToken cancellationToken = default(CancellationToken))
         {
             if (cosmosConflict == null)

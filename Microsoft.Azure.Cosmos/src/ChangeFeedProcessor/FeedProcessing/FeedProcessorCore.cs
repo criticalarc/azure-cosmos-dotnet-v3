@@ -15,7 +15,7 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedProcessing
     using Microsoft.Azure.Cosmos.ChangeFeed.DocDBErrors;
     using Microsoft.Azure.Cosmos.ChangeFeed.Exceptions;
     using Microsoft.Azure.Cosmos.ChangeFeed.FeedManagement;
-    using Microsoft.Azure.Documents;
+    using Microsoft.Azure.Cosmos.Core.Trace;
 
     internal sealed class FeedProcessorCore<T> : FeedProcessor
     {
@@ -27,9 +27,9 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedProcessing
 
         public FeedProcessorCore(
             ChangeFeedObserver<T> observer,
-            FeedIterator resultSetIterator, 
-            ProcessorOptions options, 
-            PartitionCheckpointer checkpointer, 
+            FeedIterator resultSetIterator,
+            ProcessorOptions options,
+            PartitionCheckpointer checkpointer,
             CosmosSerializer cosmosJsonSerializer)
         {
             this.observer = observer;
@@ -81,7 +81,7 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedProcessing
                         throw;
                     }
 
-                    DefaultTrace.TraceException(canceledException);
+                    Extensions.TraceException(canceledException);
                     DefaultTrace.TraceWarning("exception: lease token '{0}'", this.options.LeaseToken);
 
                     // ignore as it is caused by Cosmos DB client when StopAsync is called

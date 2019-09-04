@@ -12,7 +12,12 @@ namespace Microsoft.Azure.Cosmos.Json
     /// <summary>
     /// Partial class for the JsonWriter that has a private JsonTextWriter below.
     /// </summary>
-    internal abstract partial class JsonWriter : IJsonWriter
+#if INTERNAL
+    public
+#else
+    internal
+#endif
+    abstract partial class JsonWriter : IJsonWriter
     {
         /// <summary>
         /// Concrete implementation of <see cref="JsonWriter"/> that knows how to serialize to binary encoding.
@@ -67,8 +72,8 @@ namespace Microsoft.Azure.Cosmos.Json
             /// <param name="jsonStringDictionary">The JSON string dictionary used for user string encoding.</param>
             /// <param name="serializeCount">Whether to serialize the count for object and array typemarkers.</param>
             public JsonBinaryWriter(
-                bool skipValidation, 
-                JsonStringDictionary jsonStringDictionary = null, 
+                bool skipValidation,
+                JsonStringDictionary jsonStringDictionary = null,
                 bool serializeCount = false)
                 : base(skipValidation)
             {
@@ -490,8 +495,8 @@ namespace Microsoft.Azure.Cosmos.Json
                 // This would be changed later, so that the writer can control which strings need to be encoded.
                 this.JsonObjectState.RegisterToken(isFieldName ? JsonTokenType.FieldName : JsonTokenType.String);
                 if (JsonBinaryEncoding.TryGetEncodedStringTypeMarker(
-                    value, 
-                    this.JsonObjectState.CurrentTokenType == JsonTokenType.FieldName ? this.jsonStringDictionary : null, 
+                    value,
+                    this.JsonObjectState.CurrentTokenType == JsonTokenType.FieldName ? this.jsonStringDictionary : null,
                     out JsonBinaryEncoding.MultiByteTypeMarker multiByteTypeMarker))
                 {
                     switch (multiByteTypeMarker.Length)

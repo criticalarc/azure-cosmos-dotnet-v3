@@ -7,7 +7,6 @@ namespace Microsoft.Azure.Cosmos
     using System;
     using System.Globalization;
     using Microsoft.Azure.Documents;
-    using static Microsoft.Azure.Documents.RuntimeConstants;
 
     /// <summary>
     /// The Cosmos query request options
@@ -91,6 +90,25 @@ namespace Microsoft.Azure.Cosmos
         public PartitionKey? PartitionKey { get; set; }
 
         /// <summary>
+        /// Gets or sets the consistency level required for the request in the Azure Cosmos DB service.
+        /// </summary>
+        /// <value>
+        /// The consistency level required for the request.
+        /// </value>
+        /// <remarks>
+        /// Azure Cosmos DB offers 5 different consistency levels. Strong, Bounded Staleness, Session, Consistent Prefix and Eventual - in order of strongest to weakest consistency. <see cref="ConnectionPolicy"/>
+        /// <para>
+        /// While this is set at a database account level, Azure Cosmos DB allows a developer to override the default consistency level
+        /// for each individual request.
+        /// </para>
+        /// </remarks>
+        public ConsistencyLevel? ConsistencyLevel
+        {
+            get => this.BaseConsistencyLevel;
+            set => this.BaseConsistencyLevel = value;
+        }
+
+        /// <summary>
         /// Gets or sets the token for use with session consistency in the Azure Cosmos DB service.
         /// </summary>
         /// <value>
@@ -121,27 +139,14 @@ namespace Microsoft.Azure.Cosmos
         /// </remarks>
         internal string SessionToken { get; set; }
 
-        /// <summary>
-        /// Gets or sets the consistency level required for the request in the Azure Cosmos DB service.
-        /// </summary>
-        /// <value>
-        /// The consistency level required for the request.
-        /// </value>
-        /// <remarks>
-        /// Azure Cosmos DB offers 5 different consistency levels. Strong, Bounded Staleness, Session, Consistent Prefix and Eventual - in order of strongest to weakest consistency. <see cref="ConnectionPolicy"/>
-        /// <para>
-        /// While this is set at a database account level, Azure Cosmos DB allows a developer to override the default consistency level
-        /// for each individual request.
-        /// </para>
-        /// </remarks>
-        internal ConsistencyLevel? ConsistencyLevel { get; set; }
-
-        internal CosmosSerializationOptions CosmosSerializationOptions { get; set; }
+        internal CosmosSerializationFormatOptions CosmosSerializationOptions { get; set; }
 
         /// <summary>
         /// Gets or sets the flag that enables skip take across partitions.
         /// </summary>
         internal bool EnableCrossPartitionSkipTake { get; set; }
+
+        internal bool EnableGroupBy { get; set; }
 
         /// <summary>
         /// Fill the CosmosRequestMessage headers with the set properties
@@ -161,7 +166,6 @@ namespace Microsoft.Azure.Cosmos
             }
 
             RequestOptions.SetSessionToken(request, this.SessionToken);
-            RequestOptions.SetConsistencyLevel(request, this.ConsistencyLevel);
 
             // Flow the pageSize only when we are not doing client eval
             if (this.MaxItemCount.HasValue)
@@ -194,6 +198,8 @@ namespace Microsoft.Azure.Cosmos
                 request.Headers.Add(HttpConstants.HttpHeaders.ContentSerializationFormat, this.CosmosSerializationOptions.ContentSerializationFormat);
             }
 
+            request.Headers.Add(HttpConstants.HttpHeaders.PopulateQueryMetrics, bool.TrueString);
+
             base.PopulateRequestOptions(request);
         }
 
@@ -214,8 +220,9 @@ namespace Microsoft.Azure.Cosmos
                 PartitionKey = this.PartitionKey,
                 CosmosSerializationOptions = this.CosmosSerializationOptions,
                 EnableCrossPartitionSkipTake = this.EnableCrossPartitionSkipTake,
+                EnableGroupBy = this.EnableGroupBy,
                 Properties = this.Properties,
-                IsEffectivePartitionKeyRouting = this.IsEffectivePartitionKeyRouting
+                IsEffectivePartitionKeyRouting = this.IsEffectivePartitionKeyRouting,
             };
 
             return queryRequestOptions;
@@ -233,6 +240,7 @@ namespace Microsoft.Azure.Cosmos
                 MaxBufferedItemCount = this.MaxBufferedItemCount.HasValue ? this.MaxBufferedItemCount.Value : 0,
                 CosmosSerializationOptions = this.CosmosSerializationOptions,
                 Properties = this.Properties,
+                EnableGroupBy = this.EnableGroupBy
             };
         }
 

@@ -5,7 +5,6 @@
 namespace Microsoft.Azure.Cosmos.Routing
 {
     using System;
-    using System.Net;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Common;
@@ -64,7 +63,7 @@ namespace Microsoft.Azure.Cosmos.Routing
                    ResourceType.Collection,
                    collectionLink,
                    AuthorizationTokenType.PrimaryMasterKey,
-                   new StringKeyValueCollection()))
+                   new DictionaryNameValueCollection()))
             {
                 request.Headers[HttpConstants.HttpHeaders.XDate] = DateTime.UtcNow.ToString("r");
 

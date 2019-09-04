@@ -12,9 +12,9 @@ namespace Microsoft.Azure.Cosmos
     using System.Net.Http.Headers;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Cosmos.Routing;
     using Microsoft.Azure.Documents;
-    using Microsoft.Azure.Documents.Client;
     using Microsoft.Azure.Documents.Collections;
     using Newtonsoft.Json;
 
@@ -70,7 +70,7 @@ namespace Microsoft.Azure.Cosmos
                 httpClient,
                 this.eventSource,
                 serializerSettings);
-            
+
         }
 
         public virtual async Task<DocumentServiceResponse> ProcessMessageAsync(DocumentServiceRequest request, CancellationToken cancellationToken = default(CancellationToken))

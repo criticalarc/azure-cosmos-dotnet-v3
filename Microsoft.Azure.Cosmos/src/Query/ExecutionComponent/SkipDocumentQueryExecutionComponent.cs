@@ -10,8 +10,8 @@ namespace Microsoft.Azure.Cosmos.Query.ExecutionComponent
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos;
+    using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Cosmos.CosmosElements;
-    using Microsoft.Azure.Cosmos.Internal;
     using Microsoft.Azure.Documents;
     using Newtonsoft.Json;
 
@@ -46,7 +46,7 @@ namespace Microsoft.Azure.Cosmos.Query.ExecutionComponent
             }
 
             return new SkipDocumentQueryExecutionComponent(
-                await createSourceCallback(offsetContinuationToken.SourceToken), 
+                await createSourceCallback(offsetContinuationToken.SourceToken),
                 offsetContinuationToken.Offset);
         }
 
@@ -88,6 +88,7 @@ namespace Microsoft.Azure.Cosmos.Query.ExecutionComponent
                     result: documentsAfterSkip,
                     count: documentsAfterSkip.Count(),
                     responseHeaders: sourcePage.QueryHeaders.CloneKnownProperties(updatedContinuationToken, sourcePage.QueryHeaders.DisallowContinuationTokenMessage),
+                    queryMetrics: sourcePage.queryMetrics,
                     responseLengthBytes: sourcePage.ResponseLengthBytes);
         }
 

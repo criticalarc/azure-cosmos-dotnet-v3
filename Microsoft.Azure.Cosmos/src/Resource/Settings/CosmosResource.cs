@@ -7,7 +7,6 @@ namespace Microsoft.Azure.Cosmos
     using System;
     using System.IO;
     using Microsoft.Azure.Documents;
-    using Newtonsoft.Json;
 
     /// <summary> 
     ///  Represents an abstract resource type in the Azure Cosmos DB service.
@@ -15,7 +14,7 @@ namespace Microsoft.Azure.Cosmos
     /// </summary>
     internal static class CosmosResource
     {
-        private static CosmosJsonSerializerCore cosmosDefaultJsonSerializer = new CosmosJsonSerializerCore();
+        private static CosmosJsonDotNetSerializer cosmosDefaultJsonSerializer = new CosmosJsonDotNetSerializer();
 
         internal static T FromStream<T>(DocumentServiceResponse response)
         {

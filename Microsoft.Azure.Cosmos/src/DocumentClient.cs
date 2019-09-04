@@ -17,6 +17,7 @@ namespace Microsoft.Azure.Cosmos
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Common;
+    using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Cosmos.Query;
     using Microsoft.Azure.Cosmos.Routing;
     using Microsoft.Azure.Documents;
@@ -168,11 +169,6 @@ namespace Microsoft.Azure.Cosmos
         //Callback for on execution of scalar LINQ queries event.
         //This callback is meant for tests only.
         private Action<IQueryable> onExecuteScalarQueryCallback;
-
-        static DocumentClient()
-        {
-            StringKeyValueCollection.SetNameValueCollectionFactory(new DictionaryNameValueCollectionFactory());
-        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="DocumentClient"/> class using the
@@ -446,8 +442,8 @@ namespace Microsoft.Azure.Cosmos
                 serviceEndpoint: serviceEndpoint,
                 connectionPolicy: connectionPolicy,
                 desiredConsistencyLevel: desiredConsistencyLevel,
-                handler: handler, 
-                sessionContainer: sessionContainer, 
+                handler: handler,
+                sessionContainer: sessionContainer,
                 enableCpuMonitor: enableCpuMonitor,
                 storeClientFactory: storeClientFactory);
         }
@@ -537,7 +533,7 @@ namespace Microsoft.Azure.Cosmos
         /// <seealso cref="ConsistencyLevel"/>
         public DocumentClient(
             Uri serviceEndpoint,
-            IList<Permission> permissionFeed,
+            IList<Documents.Permission> permissionFeed,
             ConnectionPolicy connectionPolicy = null,
             Documents.ConsistencyLevel? desiredConsistencyLevel = null)
             : this(serviceEndpoint,
@@ -547,7 +543,7 @@ namespace Microsoft.Azure.Cosmos
         {
         }
 
-        private static List<ResourceToken> GetResourceTokens(IList<Permission> permissionFeed)
+        private static List<ResourceToken> GetResourceTokens(IList<Documents.Permission> permissionFeed)
         {
             if (permissionFeed == null)
             {
@@ -1443,7 +1439,7 @@ namespace Microsoft.Azure.Cosmos
             return this.accountServiceConfiguration.QueryEngineConfiguration;
         }
 
-        internal async Task<ConsistencyLevel> GetDefaultConsistencyLevelAsync()
+        internal virtual async Task<ConsistencyLevel> GetDefaultConsistencyLevelAsync()
         {
             await this.EnsureValidClientAsync();
             return (ConsistencyLevel)this.accountServiceConfiguration.DefaultConsistencyLevel;
@@ -3097,12 +3093,12 @@ namespace Microsoft.Azure.Cosmos
         {
             IDocumentClientRetryPolicy retryPolicyInstance = this.ResetSessionTokenRetryPolicy.GetRequestPolicy();
             return TaskHelper.InlineIfPossible(() => this.ReplaceDocumentPrivateAsync(
-                this.GetLinkForRouting(document), 
-                document, 
-                options, 
-                retryPolicyInstance, 
-                cancellationToken), 
-                retryPolicyInstance, 
+                this.GetLinkForRouting(document),
+                document,
+                options,
+                retryPolicyInstance,
+                cancellationToken),
+                retryPolicyInstance,
                 cancellationToken);
         }
 
@@ -3413,7 +3409,7 @@ namespace Microsoft.Azure.Cosmos
                 AuthorizationTokenType.PrimaryMasterKey))
             {
                 return new ResourceResponse<Offer>(
-                    await this.UpdateAsync(request, retryPolicyInstance), 
+                    await this.UpdateAsync(request, retryPolicyInstance),
                     OfferTypeResolver.ResponseOfferTypeResolver);
             }
         }
@@ -4107,7 +4103,7 @@ namespace Microsoft.Azure.Cosmos
         private async Task<ResourceResponse<Conflict>> ReadConflictPrivateAsync(string conflictLink, Documents.Client.RequestOptions options, IDocumentClientRetryPolicy retryPolicyInstance)
         {
             await this.EnsureValidClientAsync();
-            
+
             if (string.IsNullOrEmpty(conflictLink))
             {
                 throw new ArgumentNullException("conflictLink");
@@ -4836,12 +4832,12 @@ namespace Microsoft.Azure.Cosmos
 
             DocumentFeedResponse<Document> response = await this.CreateDocumentFeedReader(documentsLink, options).ExecuteNextAsync(cancellationToken);
             return new DocumentFeedResponse<dynamic>(
-                response.Cast<dynamic>(), 
-                response.Count, 
-                response.Headers, 
-                response.UseETagAsContinuation, 
-                response.QueryMetrics, 
-                response.RequestStatistics, 
+                response.Cast<dynamic>(),
+                response.Count,
+                response.Headers,
+                response.UseETagAsContinuation,
+                response.QueryMetrics,
+                response.RequestStatistics,
                 responseLengthBytes: response.ResponseLengthBytes);
         }
 
@@ -5173,10 +5169,10 @@ namespace Microsoft.Azure.Cosmos
             IDocumentClientRetryPolicy retryPolicyInstance = this.ResetSessionTokenRetryPolicy.GetRequestPolicy();
             return TaskHelper.InlineIfPossible(
                 () => this.ExecuteStoredProcedurePrivateAsync<TValue>(
-                    storedProcedureLink, 
-                    options, 
+                    storedProcedureLink,
+                    options,
                     retryPolicyInstance,
-                    default(CancellationToken), 
+                    default(CancellationToken),
                     procedureParams),
                 retryPolicyInstance);
         }
@@ -5215,20 +5211,20 @@ namespace Microsoft.Azure.Cosmos
             IDocumentClientRetryPolicy retryPolicyInstance = this.ResetSessionTokenRetryPolicy.GetRequestPolicy();
             return TaskHelper.InlineIfPossible(
                 () => this.ExecuteStoredProcedurePrivateAsync<TValue>(
-                    storedProcedureLink, 
-                    options, 
-                    retryPolicyInstance, 
-                    cancellationToken, 
+                    storedProcedureLink,
+                    options,
+                    retryPolicyInstance,
+                    cancellationToken,
                     procedureParams),
-                retryPolicyInstance, 
+                retryPolicyInstance,
                 cancellationToken);
         }
 
         private async Task<StoredProcedureResponse<TValue>> ExecuteStoredProcedurePrivateAsync<TValue>(
             string storedProcedureLink,
             Documents.Client.RequestOptions options,
-            IDocumentClientRetryPolicy retryPolicyInstance, 
-            CancellationToken cancellationToken, 
+            IDocumentClientRetryPolicy retryPolicyInstance,
+            CancellationToken cancellationToken,
             params dynamic[] procedureParams)
         {
             await this.EnsureValidClientAsync();
@@ -5274,9 +5270,9 @@ namespace Microsoft.Azure.Cosmos
 
                         request.SerializerSettings = this.GetSerializerSettingsForRequest(options);
                         return new StoredProcedureResponse<TValue>(await this.ExecuteProcedureAsync(
-                            request, 
-                            retryPolicyInstance, 
-                            cancellationToken), 
+                            request,
+                            retryPolicyInstance,
+                            cancellationToken),
                             this.GetSerializerSettingsForRequest(options));
                     }
                 }
@@ -6082,24 +6078,30 @@ namespace Microsoft.Azure.Cosmos
             }
         }
 
-        Task<string> IAuthorizationTokenProvider.GetSystemAuthorizationTokenAsync(
-            string federationName,
-            string resourceAddress,
-            string resourceType,
-            string requestVerb,
-            INameValueCollection headers,
-            AuthorizationTokenType tokenType)
+        Task IAuthorizationTokenProvider.AddSystemAuthorizationHeaderAsync(
+            DocumentServiceRequest request,
+            string federationId,
+            string verb,
+            string resourceId)
         {
-            return Task.FromResult(
-                ((IAuthorizationTokenProvider)this).GetUserAuthorizationToken(resourceAddress, resourceType, requestVerb, headers, tokenType));
+            request.Headers[HttpConstants.HttpHeaders.XDate] = DateTime.UtcNow.ToString("r", CultureInfo.InvariantCulture);
+
+            request.Headers[HttpConstants.HttpHeaders.Authorization] = ((IAuthorizationTokenProvider)this).GetUserAuthorizationToken(
+                resourceId ?? request.ResourceAddress,
+                PathsHelper.GetResourcePath(request.ResourceType),
+                verb,
+                request.Headers,
+                request.RequestAuthorizationTokenType);
+
+            return Task.FromResult(0);
         }
 
         #endregion
 
         #region Core Implementation
         internal Task<DocumentServiceResponse> CreateAsync(
-            DocumentServiceRequest request, 
-            IDocumentClientRetryPolicy retryPolicy, 
+            DocumentServiceRequest request,
+            IDocumentClientRetryPolicy retryPolicy,
             CancellationToken cancellationToken = default(CancellationToken))
         {
             if (request == null)
@@ -6286,7 +6288,7 @@ namespace Microsoft.Azure.Cosmos
             {
                 using (HttpRequestMessage request = new HttpRequestMessage())
                 {
-                    INameValueCollection headersCollection = new StringKeyValueCollection();
+                    INameValueCollection headersCollection = new DictionaryNameValueCollection();
                     string xDate = DateTime.UtcNow.ToString("r");
                     headersCollection.Add(HttpConstants.HttpHeaders.XDate, xDate);
                     request.Headers.Add(HttpConstants.HttpHeaders.XDate, xDate);
@@ -6405,7 +6407,7 @@ namespace Microsoft.Azure.Cosmos
                 return this.storeModel;
             }
         }
-        
+
         /// <summary>
         /// The preferred link used in replace operation in SDK.
         /// </summary>
@@ -6435,7 +6437,7 @@ namespace Microsoft.Azure.Cosmos
                 return true;
             }
 
-            return ValidationHelpers.ValidateConsistencyLevel(backendConsistency, desiredConsistency);
+            return ValidationHelpers.IsValidConsistencyLevelOverwrite(backendConsistency, desiredConsistency);
         }
 
         private void InitializeDirectConnectivity(IStoreClientFactory storeClientFactory)
@@ -6582,7 +6584,7 @@ namespace Microsoft.Azure.Cosmos
 
         internal void ValidateResource(string resourceId)
         {
-                if (!string.IsNullOrEmpty(resourceId))
+            if (!string.IsNullOrEmpty(resourceId))
             {
                 int match = resourceId.IndexOfAny(new char[] { '/', '\\', '?', '#' });
                 if (match != -1)
@@ -6666,7 +6668,7 @@ namespace Microsoft.Azure.Cosmos
                 this.initializeTask.IsCompleted,
                 "GetRequestHeaders should be called after initialization task has been awaited to avoid blocking while accessing ConsistencyLevel property");
 
-            INameValueCollection headers = new StringKeyValueCollection();
+            INameValueCollection headers = new DictionaryNameValueCollection();
 
             if (this.useMultipleWriteLocations)
             {

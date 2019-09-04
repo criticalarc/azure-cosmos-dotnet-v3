@@ -28,6 +28,7 @@ namespace Microsoft.Azure.Cosmos
             int count,
             long responseLengthBytes,
             CosmosQueryResponseMessageHeaders responseHeaders,
+            IReadOnlyDictionary<string, QueryMetrics> queryMetrics,
             HttpStatusCode statusCode,
             RequestMessage requestMessage,
             string errorMessage,
@@ -42,14 +43,15 @@ namespace Microsoft.Azure.Cosmos
             this.CosmosElements = result;
             this.Count = count;
             this.ResponseLengthBytes = responseLengthBytes;
+            this.queryMetrics = queryMetrics;
         }
 
         public int Count { get; }
 
         public override Stream Content => CosmosElementSerializer.ToStream(
             this.QueryHeaders.ContainerRid,
-            this.CosmosElements, 
-            this.QueryHeaders.ResourceType, 
+            this.CosmosElements,
+            this.QueryHeaders.ResourceType,
             this.CosmosSerializationOptions);
 
         internal virtual IEnumerable<CosmosElement> CosmosElements { get; }
@@ -72,7 +74,9 @@ namespace Microsoft.Azure.Cosmos
         /// </remarks>
         internal ClientSideRequestStatistics RequestStatistics { get; }
 
-        internal virtual CosmosSerializationOptions CosmosSerializationOptions { get; set; }
+        internal IReadOnlyDictionary<string, QueryMetrics> queryMetrics { get; set; }
+
+        internal virtual CosmosSerializationFormatOptions CosmosSerializationOptions { get; set; }
 
         internal bool GetHasMoreResults()
         {
@@ -83,18 +87,9 @@ namespace Microsoft.Azure.Cosmos
             IEnumerable<CosmosElement> result,
             int count,
             long responseLengthBytes,
-            CosmosQueryResponseMessageHeaders responseHeaders)
+            CosmosQueryResponseMessageHeaders responseHeaders,
+            IReadOnlyDictionary<string, QueryMetrics> queryMetrics = null)
         {
-            if (result == null)
-            {
-                throw new ArgumentNullException(nameof(result));
-            }
-
-            if (responseHeaders == null)
-            {
-                throw new ArgumentNullException(nameof(responseHeaders));
-            }
-
             if (count < 0)
             {
                 throw new ArgumentOutOfRangeException("count must be positive");
@@ -110,6 +105,7 @@ namespace Microsoft.Azure.Cosmos
                count: count,
                responseLengthBytes: responseLengthBytes,
                responseHeaders: responseHeaders,
+               queryMetrics: queryMetrics,
                statusCode: HttpStatusCode.OK,
                errorMessage: null,
                error: null,
@@ -125,21 +121,12 @@ namespace Microsoft.Azure.Cosmos
             string errorMessage,
             Error error)
         {
-            if (responseHeaders == null)
-            {
-                throw new ArgumentNullException(nameof(responseHeaders));
-            }
-
-            if (errorMessage == null)
-            {
-                throw new ArgumentNullException(nameof(errorMessage));
-            }
-
             QueryResponse cosmosQueryResponse = new QueryResponse(
                 result: Enumerable.Empty<CosmosElement>(),
                 count: 0,
                 responseLengthBytes: 0,
                 responseHeaders: responseHeaders,
+                queryMetrics: null,
                 statusCode: statusCode,
                 errorMessage: errorMessage,
                 error: error,
@@ -157,68 +144,42 @@ namespace Microsoft.Azure.Cosmos
     {
         private readonly IEnumerable<CosmosElement> cosmosElements;
         private readonly CosmosSerializer jsonSerializer;
-        private readonly CosmosSerializationOptions serializationOptions;
+        private readonly CosmosSerializationFormatOptions serializationOptions;
         private IEnumerable<T> resources;
 
-        /// <summary>
-        /// Create a <see cref="QueryResponse{T}"/>
-        /// </summary>
         private QueryResponse(
+            HttpStatusCode httpStatusCode,
             IEnumerable<CosmosElement> cosmosElements,
             CosmosQueryResponseMessageHeaders responseMessageHeaders,
-            bool hasMoreResults,
+            CosmosDiagnostics diagnostics,
             CosmosSerializer jsonSerializer,
-            CosmosSerializationOptions serializationOptions)
+            CosmosSerializationFormatOptions serializationOptions)
         {
             this.cosmosElements = cosmosElements;
             this.QueryHeaders = responseMessageHeaders;
-            this.HasMoreResults = hasMoreResults;
+            this.Diagnostics = diagnostics;
             this.jsonSerializer = jsonSerializer;
             this.serializationOptions = serializationOptions;
+            this.StatusCode = httpStatusCode;
         }
 
-        /// <summary>
-        /// Gets the continuation token
-        /// </summary>
         public override string ContinuationToken => this.Headers.ContinuationToken;
 
-        /// <summary>
-        /// Gets the request charge for this request from the Azure Cosmos DB service.
-        /// </summary>
-        /// <value>
-        /// The request charge measured in request units.
-        /// </value>
         public override double RequestCharge => this.Headers.RequestCharge;
 
-        /// <summary>
-        /// The headers of the response
-        /// </summary>
         public override Headers Headers => this.QueryHeaders;
 
-        /// <summary>
-        /// The number of items in the stream.
-        /// </summary>
-        public override int Count { get; }
+        public override HttpStatusCode StatusCode { get; }
+
+        public override int Count => this.cosmosElements?.Count() ?? 0;
 
         internal CosmosQueryResponseMessageHeaders QueryHeaders { get; }
 
-        internal override string InternalContinuationToken => this.QueryHeaders?.InternalContinuationToken;
-
-        internal override bool HasMoreResults { get; }
-
-        /// <summary>
-        /// Get the enumerators to iterate through the results
-        /// </summary>
-        /// <returns>An enumerator of the response objects</returns>
         public override IEnumerator<T> GetEnumerator()
         {
             return this.Resource.GetEnumerator();
         }
 
-        /// <summary>
-        /// Get the enumerators to iterate through the results
-        /// </summary>
-        /// <returns>An enumerator of the response objects</returns>
         public override IEnumerable<T> Resource
         {
             get
@@ -239,21 +200,20 @@ namespace Microsoft.Azure.Cosmos
 
         internal static QueryResponse<TInput> CreateResponse<TInput>(
             QueryResponse cosmosQueryResponse,
-            CosmosSerializer jsonSerializer,
-            bool hasMoreResults)
+            CosmosSerializer jsonSerializer)
         {
             QueryResponse<TInput> queryResponse;
             using (cosmosQueryResponse)
             {
                 cosmosQueryResponse.EnsureSuccessStatusCode();
                 queryResponse = new QueryResponse<TInput>(
+                    httpStatusCode: cosmosQueryResponse.StatusCode,
                     cosmosElements: cosmosQueryResponse.CosmosElements,
                     responseMessageHeaders: cosmosQueryResponse.QueryHeaders,
-                    hasMoreResults: hasMoreResults,
+                    diagnostics: cosmosQueryResponse.Diagnostics,
                     jsonSerializer: jsonSerializer,
                     serializationOptions: cosmosQueryResponse.CosmosSerializationOptions);
             }
-
             return queryResponse;
         }
     }

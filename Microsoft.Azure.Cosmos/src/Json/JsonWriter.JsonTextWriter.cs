@@ -5,13 +5,19 @@ namespace Microsoft.Azure.Cosmos.Json
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using System.Text;
 
     /// <summary>
     /// Partial class for the JsonWriter that has a private JsonTextWriter below.
     /// </summary>
-    internal abstract partial class JsonWriter : IJsonWriter
+#if INTERNAL
+    public
+#else
+    internal
+#endif
+    abstract partial class JsonWriter : IJsonWriter
     {
         /// <summary>
         /// This class is used to build a JSON string.
@@ -41,7 +47,7 @@ namespace Microsoft.Azure.Cosmos.Json
             private const string FalseString = "false";
             private const string NullString = "null";
 
-            private static readonly Dictionary<Encoding, string> ByteOrderMarkDictionary = new Dictionary<Encoding, string> 
+            private static readonly Dictionary<Encoding, string> ByteOrderMarkDictionary = new Dictionary<Encoding, string>
             {
                 { Encoding.UTF8, "\xEF\xBB\xBF" },
                 { Encoding.Unicode, "\xFF\xFE" },
@@ -179,7 +185,7 @@ namespace Microsoft.Azure.Cosmos.Json
             {
                 this.JsonObjectState.RegisterToken(JsonTokenType.Number);
                 this.PrefixMemberSeparator();
-                this.streamWriter.Write(value.ToString());
+                this.streamWriter.Write(value.ToString(CultureInfo.InvariantCulture));
             }
 
             /// <summary>
@@ -226,7 +232,7 @@ namespace Microsoft.Azure.Cosmos.Json
                     // If you require more precision, specify format with the "G17" format specification, which always returns 17 digits of precision,
                     // or "R", which returns 15 digits if the number can be represented with that precision or 17 digits if the number can only be represented with maximum precision.
                     // In some cases, Double values formatted with the "R" standard numeric format string do not successfully round-trip if compiled using the /platform:x64 or /platform:anycpu switches and run on 64-bit systems. To work around this problem, you can format Double values by using the "G17" standard numeric format string. 
-                    this.streamWriter.Write(value.ToString("R"));
+                    this.streamWriter.Write(value.ToString("R", CultureInfo.InvariantCulture));
                 }
             }
 
@@ -425,29 +431,29 @@ namespace Microsoft.Azure.Cosmos.Json
                         char escapeSequence = default(char);
                         switch (characterToEscape)
                         {
-                            case '\\': 
+                            case '\\':
                                 escapeSequence = '\\';
                                 break;
                             case '"':
                                 escapeSequence = '"';
                                 break;
-                            case '/': 
-                                escapeSequence = '/'; 
+                            case '/':
+                                escapeSequence = '/';
                                 break;
-                            case '\b': 
-                                escapeSequence = 'b'; 
+                            case '\b':
+                                escapeSequence = 'b';
                                 break;
-                            case '\f': 
-                                escapeSequence = 'f'; 
+                            case '\f':
+                                escapeSequence = 'f';
                                 break;
-                            case '\n': 
-                                escapeSequence = 'n'; 
+                            case '\n':
+                                escapeSequence = 'n';
                                 break;
-                            case '\r': 
-                                escapeSequence = 'r'; 
+                            case '\r':
+                                escapeSequence = 'r';
                                 break;
-                            case '\t': 
-                                escapeSequence = 't'; 
+                            case '\t':
+                                escapeSequence = 't';
                                 break;
                         }
 
