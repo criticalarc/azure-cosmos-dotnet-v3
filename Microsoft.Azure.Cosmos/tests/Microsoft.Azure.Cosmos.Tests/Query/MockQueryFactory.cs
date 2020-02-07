@@ -10,6 +10,9 @@ namespace Microsoft.Azure.Cosmos.Tests
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Query;
+    using Microsoft.Azure.Cosmos.Query.Core;
+    using Microsoft.Azure.Cosmos.Query.Core.Metrics;
+    using Microsoft.Azure.Cosmos.Query.Core.QueryClient;
     using Microsoft.Azure.Cosmos.Routing;
     using Microsoft.Azure.Documents;
     using Moq;
@@ -17,6 +20,7 @@ namespace Microsoft.Azure.Cosmos.Tests
     internal static class MockQueryFactory
     {
         public static readonly int[] EmptyPage = new int[] { };
+        public static readonly int[] FailureToManyRequests = new int[] { MockPartitionResponse.MessageWithToManyRequestFailure };
         public static readonly string DefaultDatabaseRid = ResourceId.NewDatabaseId(3810641).ToString();
         public static readonly string DefaultCollectionRid = ResourceId.NewDocumentCollectionId(DefaultDatabaseRid, 1376573569).ToString();
         public static readonly SqlQuerySpec DefaultQuerySpec = new SqlQuerySpec("SELECT * FROM C ");
@@ -41,10 +45,6 @@ namespace Microsoft.Azure.Cosmos.Tests
            MockPartitionResponse[] mockResponseForSinglePartition,
            CancellationToken cancellationTokenForMocks)
         {
-            // Setup the routing map in case there is a split and the ranges need to be updated
-            Mock<IRoutingMapProvider> mockRoutingMap = new Mock<IRoutingMapProvider>();
-            mockQueryClient.Setup(x => x.GetRoutingMapProviderAsync()).Returns(Task.FromResult(mockRoutingMap.Object));
-
             // Get the total item count
             int totalItemCount = 0;
             foreach (MockPartitionResponse response in mockResponseForSinglePartition)
@@ -60,7 +60,6 @@ namespace Microsoft.Azure.Cosmos.Tests
 
             GenerateAndMockResponseHelper(
                 mockQueryClient: mockQueryClient,
-                mockRoutingMap: mockRoutingMap,
                 allItemsOrdered: allItemsOrdered,
                 isOrderByQuery: isOrderByQuery,
                 sqlQuerySpec: sqlQuerySpec,
@@ -75,7 +74,6 @@ namespace Microsoft.Azure.Cosmos.Tests
 
         private static IList<ToDoItem> GenerateAndMockResponseHelper(
              Mock<CosmosQueryClient> mockQueryClient,
-             Mock<IRoutingMapProvider> mockRoutingMap,
              IList<ToDoItem> allItemsOrdered,
              bool isOrderByQuery,
              SqlQuerySpec sqlQuerySpec,
@@ -98,50 +96,66 @@ namespace Microsoft.Azure.Cosmos.Tests
                 string previousContinuationToken = initContinuationToken;
 
                 // Loop through each message inside the partition
-                List<int[]> messages = partitionAndMessages.MessagesWithItemIndex;
-                int messagesCount = messages == null ? 0 : messages.Count;
-                int lastMessageIndex = messagesCount - 1;
-                for (int i = 0; i < messagesCount; i++)
+                List<int[]> pages = partitionAndMessages.MessagesWithItemIndex;
+                int pagesCount = pages == null ? 0 : pages.Count;
+                int lastPageIndex = pagesCount - 1;
+                for (int i = 0; i < pagesCount; i++)
                 {
-                    int[] message = partitionAndMessages.MessagesWithItemIndex[i];
-
+                    int[] itemsInPage = partitionAndMessages.MessagesWithItemIndex[i];
                     string newContinuationToken = null;
+                    QueryResponseCore queryResponse;
 
-                    List<ToDoItem> currentPageItems = new List<ToDoItem>();
-                    // Null represents an empty page
-                    if (message != null)
+                    bool isFailureResponse = itemsInPage.Length == 1 && itemsInPage[0] < 0;
+                    if (isFailureResponse)
                     {
-                        foreach (int itemPosition in message)
+                        if(itemsInPage[0] == MockPartitionResponse.MessageWithToManyRequestFailure)
                         {
-                            currentPageItems.Add(allItemsOrdered[itemPosition]);
+                            queryResponse = QueryResponseMessageFactory.CreateFailureToManyRequestResponse();
+                        }
+                        else
+                        {
+                            throw new ArgumentException($"Unknown mocked failure response {itemsInPage[0]}");
                         }
                     }
-
-                    // Last message should have null continuation token
-                    // Split means it's not the last message for this PK range
-                    if (i != lastMessageIndex || partitionAndMessages.HasSplit)
+                    else
                     {
-                        newContinuationToken = Guid.NewGuid().ToString();
-                    }
+                        List<ToDoItem> currentPageItems = new List<ToDoItem>();
 
-                    QueryResponse queryResponse = QueryResponseMessageFactory.CreateQueryResponse(
-                        currentPageItems,
-                        isOrderByQuery,
-                        newContinuationToken,
-                        containerRid);
+                        // Null represents an empty page. Page with a single negative value represents a failure response
+                        if (itemsInPage != null)
+                        {
+                            foreach (int itemPosition in itemsInPage)
+                            {
+                                currentPageItems.Add(allItemsOrdered[itemPosition]);
+                            }
+                        }
+
+                        // Last message should have null continuation token
+                        // Split means it's not the last message for this PK range
+                        if (i != lastPageIndex || partitionAndMessages.HasSplit)
+                        {
+                            newContinuationToken = Guid.NewGuid().ToString();
+                        }
+
+                        queryResponse = QueryResponseMessageFactory.CreateQueryResponse(
+                            currentPageItems,
+                            isOrderByQuery,
+                            newContinuationToken,
+                            containerRid);
+                    }
 
                     mockQueryClient.Setup(x =>
                       x.ExecuteItemQueryAsync(
                           It.IsAny<Uri>(),
                           ResourceType.Document,
                           OperationType.Query,
-                          containerRid,
                           It.IsAny<QueryRequestOptions>(),
                           It.Is<SqlQuerySpec>(specInput => MockItemProducerFactory.IsSqlQuerySpecEqual(sqlQuerySpec, specInput)),
                           previousContinuationToken,
                           It.Is<PartitionKeyRangeIdentity>(rangeId => string.Equals(rangeId.PartitionKeyRangeId, partitionKeyRange.Id) && string.Equals(rangeId.CollectionRid, containerRid)),
                           It.IsAny<bool>(),
                           maxPageSize,
+                          It.IsAny<SchedulingStopwatch>(),
                           cancellationTokenForMocks))
                           .Returns(Task.FromResult(queryResponse));
 
@@ -150,9 +164,9 @@ namespace Microsoft.Azure.Cosmos.Tests
 
                 if (partitionAndMessages.HasSplit)
                 {
-                    QueryResponse querySplitResponse = QueryResponseMessageFactory.CreateSplitResponse(containerRid);
+                    QueryResponseCore querySplitResponse = QueryResponseMessageFactory.CreateSplitResponse(containerRid);
 
-                    mockRoutingMap.Setup(x =>
+                    mockQueryClient.Setup(x =>
                             x.TryGetOverlappingRangesAsync(
                                 containerRid,
                                 It.Is<Documents.Routing.Range<string>>(inputRange => inputRange.Equals(partitionKeyRange.ToRange())),
@@ -163,19 +177,18 @@ namespace Microsoft.Azure.Cosmos.Tests
                          It.IsAny<Uri>(),
                          ResourceType.Document,
                          OperationType.Query,
-                         containerRid,
                          It.IsAny<QueryRequestOptions>(),
                          It.Is<SqlQuerySpec>(specInput => MockItemProducerFactory.IsSqlQuerySpecEqual(sqlQuerySpec, specInput)),
                          previousContinuationToken,
                          It.Is<PartitionKeyRangeIdentity>(rangeId => string.Equals(rangeId.PartitionKeyRangeId, partitionKeyRange.Id) && string.Equals(rangeId.CollectionRid, containerRid)),
                          It.IsAny<bool>(),
                          maxPageSize,
+                         It.IsAny<SchedulingStopwatch>(),
                          cancellationTokenForMocks))
                          .Returns(Task.FromResult(querySplitResponse));
 
                     GenerateAndMockResponseHelper(
                        mockQueryClient: mockQueryClient,
-                       mockRoutingMap: mockRoutingMap,
                        allItemsOrdered: allItemsOrdered,
                        isOrderByQuery: isOrderByQuery,
                        sqlQuerySpec: sqlQuerySpec,
@@ -193,13 +206,12 @@ namespace Microsoft.Azure.Cosmos.Tests
         public static CosmosQueryContext CreateContext(
             CosmosQueryClient cosmosQueryClient)
         {
-            return new CosmosQueryContext(
+            return new CosmosQueryContextCore(
                 client: cosmosQueryClient,
+                queryRequestOptions: null,
                 resourceTypeEnum: ResourceType.Document,
                 operationType: OperationType.Query,
                 resourceType: typeof(ToDoItem),
-                sqlQuerySpecFromUser: DefaultQuerySpec,
-                queryRequestOptions: new QueryRequestOptions(),
                 resourceLink: DefaultResourceLink,
                 correlatedActivityId: Guid.NewGuid(),
                 isContinuationExpected: true,
@@ -270,6 +282,22 @@ namespace Microsoft.Azure.Cosmos.Tests
             };
         }
 
+        public static List<MockPartitionResponse[]> GetFailureScenarios()
+        {
+            return new List<MockPartitionResponse[]>
+            {
+                CreateDefaultResponse(
+                    MockQueryFactory.FailureToManyRequests),
+                CreateDefaultResponse(
+                    new int[] { 0 },
+                    MockQueryFactory.FailureToManyRequests),
+                CreateDefaultResponse(
+                    new int[] { 0 },
+                    new int[] { 1 },
+                    MockQueryFactory.FailureToManyRequests),
+            };
+        }
+
         public static List<MockPartitionResponse[]> GetSplitScenarios()
         {
             List<MockPartitionResponse[]> allSplitScenario = new List<MockPartitionResponse[]>();
@@ -296,7 +324,7 @@ namespace Microsoft.Azure.Cosmos.Tests
                 new List<int[]>(){ new int[] {0, 1} }
             };
 
-            foreach (var firstPartition in firstPartitionOptions)
+            foreach (List<int[]> firstPartition in firstPartitionOptions)
             {
                 int itemCount = 0;
                 if (firstPartition != null)

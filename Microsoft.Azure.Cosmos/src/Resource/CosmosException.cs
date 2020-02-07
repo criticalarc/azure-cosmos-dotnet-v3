@@ -7,6 +7,7 @@ namespace Microsoft.Azure.Cosmos
     using System;
     using System.IO;
     using System.Net;
+    using System.Text;
     using Microsoft.Azure.Documents;
 
     /// <summary>
@@ -14,11 +15,13 @@ namespace Microsoft.Azure.Cosmos
     /// </summary>
     public class CosmosException : Exception
     {
+        private static readonly string FullName = typeof(CosmosException).FullName;
         internal CosmosException(
             HttpStatusCode statusCode,
             string message,
-            Error error = null)
-            : base(message)
+            Error error = null,
+            Exception inner = null)
+            : base(message, inner)
         {
             this.StatusCode = statusCode;
             this.Error = error;
@@ -44,6 +47,7 @@ namespace Microsoft.Azure.Cosmos
                 this.RequestCharge = this.Headers.RequestCharge;
                 this.RetryAfter = this.Headers.RetryAfter;
                 this.SubStatusCode = (int)this.Headers.SubStatusCode;
+                this.Diagnostics = cosmosResponseMessage.Diagnostics;
                 if (this.Headers.ContentLengthAsLong > 0)
                 {
                     using (StreamReader responseReader = new StreamReader(cosmosResponseMessage.Content))
@@ -123,6 +127,11 @@ namespace Microsoft.Azure.Cosmos
         public virtual Headers Headers { get; }
 
         /// <summary>
+        /// Gets the diagnostics for the request
+        /// </summary>
+        public virtual CosmosDiagnostics Diagnostics { get; }
+
+        /// <summary>
         /// Gets the internal error object
         /// </summary>
         internal virtual Error Error { get; }
@@ -150,7 +159,46 @@ namespace Microsoft.Azure.Cosmos
         /// <returns>A string representation of the exception.</returns>
         public override string ToString()
         {
-            return $"{nameof(CosmosException)};StatusCode={this.StatusCode};SubStatusCode={this.SubStatusCode};ActivityId={this.ActivityId ?? string.Empty};RequestCharge={this.RequestCharge};Message={this.Message};";
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.Append(CosmosException.FullName);
+            if (this.Message != null)
+            {
+                stringBuilder.Append(" : ");
+                stringBuilder.Append(this.Message);
+                stringBuilder.AppendLine();
+            }
+
+            stringBuilder.AppendFormat("StatusCode = {0};", this.StatusCode);
+            stringBuilder.AppendLine();
+
+            stringBuilder.AppendFormat("SubStatusCode = {0};", this.SubStatusCode);
+            stringBuilder.AppendLine();
+
+            stringBuilder.AppendFormat("ActivityId = {0};", this.ActivityId ?? Guid.Empty.ToString());
+            stringBuilder.AppendLine();
+
+            stringBuilder.AppendFormat("RequestCharge = {0};", this.RequestCharge);
+            stringBuilder.AppendLine();
+
+            if (this.Diagnostics != null)
+            {
+                stringBuilder.Append(this.Diagnostics);
+                stringBuilder.AppendLine();
+            }
+
+            if (this.InnerException != null)
+            {
+                stringBuilder.Append(" ---> ");
+                stringBuilder.Append(this.InnerException);
+                stringBuilder.AppendLine();
+                stringBuilder.Append("   ");
+                stringBuilder.Append("--- End of inner exception stack trace ---");
+                stringBuilder.AppendLine();
+            }
+
+            stringBuilder.Append(this.StackTrace);
+
+            return stringBuilder.ToString();
         }
 
         internal ResponseMessage ToCosmosResponseMessage(RequestMessage request)
@@ -160,7 +208,8 @@ namespace Microsoft.Azure.Cosmos
                  requestMessage: request,
                  errorMessage: this.Message,
                  statusCode: this.StatusCode,
-                 error: this.Error);
+                 error: this.Error,
+                 diagnostics: request.DiagnosticsContext);
         }
     }
 }

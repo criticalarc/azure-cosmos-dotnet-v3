@@ -25,13 +25,15 @@ namespace Microsoft.Azure.Cosmos.Scripts
         /// This will prevent memory leaks when handling the HttpResponseMessage
         /// </summary>
         internal TriggerResponse(
-           HttpStatusCode httpStatusCode,
-           Headers headers,
-           TriggerProperties triggerProperties)
+            HttpStatusCode httpStatusCode,
+            Headers headers,
+            TriggerProperties triggerProperties,
+            CosmosDiagnostics diagnostics)
         {
             this.StatusCode = httpStatusCode;
             this.Headers = headers;
             this.Resource = triggerProperties;
+            this.Diagnostics = diagnostics;
         }
 
         /// <inheritdoc/>
@@ -44,6 +46,9 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public override HttpStatusCode StatusCode { get; }
 
         /// <inheritdoc/>
+        public override CosmosDiagnostics Diagnostics { get; }
+
+        /// <inheritdoc/>
         public override double RequestCharge => this.Headers?.RequestCharge ?? 0;
 
         /// <inheritdoc/>
@@ -51,12 +56,6 @@ namespace Microsoft.Azure.Cosmos.Scripts
 
         /// <inheritdoc/>
         public override string ETag => this.Headers?.ETag;
-
-        /// <inheritdoc/>
-        internal override string MaxResourceQuota => this.Headers?.GetHeaderValue<string>(HttpConstants.HttpHeaders.MaxResourceQuota);
-
-        /// <inheritdoc/>
-        internal override string CurrentResourceQuotaUsage => this.Headers?.GetHeaderValue<string>(HttpConstants.HttpHeaders.CurrentResourceQuotaUsage);
 
         /// <summary>
         /// Get <see cref="TriggerProperties"/> implicitly from <see cref="TriggerResponse"/>

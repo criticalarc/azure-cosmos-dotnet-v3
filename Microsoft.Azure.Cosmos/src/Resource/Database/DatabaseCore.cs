@@ -69,7 +69,7 @@ namespace Microsoft.Azure.Cosmos
         public async override Task<int?> ReadThroughputAsync(
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            ThroughputResponse response = await this.ReadThroughputAsync(null, cancellationToken);
+            ThroughputResponse response = await this.ReadThroughputIfExistsAsync(null, cancellationToken);
             return response.Resource?.Throughput;
         }
 
@@ -83,6 +83,15 @@ namespace Microsoft.Azure.Cosmos
                 targetRID: rid,
                 requestOptions: requestOptions,
                 cancellationToken: cancellationToken);
+        }
+
+        internal async Task<ThroughputResponse> ReadThroughputIfExistsAsync(
+            RequestOptions requestOptions,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            string rid = await this.GetRIDAsync(cancellationToken);
+            CosmosOffers cosmosOffers = new CosmosOffers(this.ClientContext);
+            return await cosmosOffers.ReadThroughputIfExistsAsync(targetRID: rid, requestOptions: requestOptions, cancellationToken: cancellationToken);
         }
 
         public async override Task<ThroughputResponse> ReplaceThroughputAsync(
@@ -99,9 +108,23 @@ namespace Microsoft.Azure.Cosmos
                 cancellationToken: cancellationToken);
         }
 
+        internal async Task<ThroughputResponse> ReplaceThroughputIfExistsAsync(
+            int throughput,
+            RequestOptions requestOptions = null,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            string rid = await this.GetRIDAsync(cancellationToken);
+            CosmosOffers cosmosOffers = new CosmosOffers(this.ClientContext);
+            return await cosmosOffers.ReplaceThroughputIfExistsAsync(
+                targetRID: rid,
+                throughput: throughput,
+                requestOptions: requestOptions,
+                cancellationToken: cancellationToken);
+        }
+
         public override Task<ResponseMessage> ReadStreamAsync(
-                    RequestOptions requestOptions = null,
-                    CancellationToken cancellationToken = default(CancellationToken))
+            RequestOptions requestOptions = null,
+            CancellationToken cancellationToken = default(CancellationToken))
         {
             return this.ProcessAsync(
                 OperationType.Read,
@@ -133,7 +156,7 @@ namespace Microsoft.Azure.Cosmos
             this.ValidateContainerProperties(containerProperties);
 
             Task<ResponseMessage> response = this.CreateContainerStreamInternalAsync(
-                streamPayload: this.ClientContext.PropertiesSerializer.ToStream(containerProperties),
+                streamPayload: this.ClientContext.SerializerCore.ToStream(containerProperties),
                 throughput: throughput,
                 requestOptions: requestOptions,
                 cancellationToken: cancellationToken);
@@ -239,10 +262,10 @@ namespace Microsoft.Azure.Cosmos
                 throw new ArgumentNullException(nameof(id));
             }
 
-            return new ContainerCore(
+            return new ContainerInlineCore(new ContainerCore(
                     this.ClientContext,
                     this,
-                    id);
+                    id));
         }
 
         public override Task<ResponseMessage> CreateContainerStreamAsync(
@@ -258,7 +281,7 @@ namespace Microsoft.Azure.Cosmos
 
             this.ValidateContainerProperties(containerProperties);
 
-            Stream streamPayload = this.ClientContext.PropertiesSerializer.ToStream(containerProperties);
+            Stream streamPayload = this.ClientContext.SerializerCore.ToStream(containerProperties);
             return this.CreateContainerStreamInternalAsync(streamPayload,
                 throughput,
                 requestOptions,
@@ -292,10 +315,10 @@ namespace Microsoft.Azure.Cosmos
                 throw new ArgumentNullException(nameof(id));
             }
 
-            return new UserCore(
+            return new UserInlineCore(new UserCore(
                     this.ClientContext,
                     this,
-                    id);
+                    id));
         }
 
         public Task<ResponseMessage> CreateUserStreamAsync(
@@ -310,7 +333,7 @@ namespace Microsoft.Azure.Cosmos
 
             this.ClientContext.ValidateResource(userProperties.Id);
 
-            Stream streamPayload = this.ClientContext.PropertiesSerializer.ToStream(userProperties);
+            Stream streamPayload = this.ClientContext.SerializerCore.ToStream(userProperties);
             return this.ProcessUserCreateAsync(
                 streamPayload: streamPayload,
                 requestOptions: requestOptions,
@@ -329,7 +352,7 @@ namespace Microsoft.Azure.Cosmos
             this.ClientContext.ValidateResource(id);
 
             Task<ResponseMessage> response = this.ProcessUserUpsertAsync(
-                streamPayload: this.ClientContext.PropertiesSerializer.ToStream(new UserProperties(id)),
+                streamPayload: this.ClientContext.SerializerCore.ToStream(new UserProperties(id)),
                 requestOptions: requestOptions,
                 cancellationToken: cancellationToken);
 
@@ -389,28 +412,40 @@ namespace Microsoft.Azure.Cosmos
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            FeedIterator containerStreamIterator = this.GetContainerQueryStreamIterator(
+            if (!(this.GetContainerQueryStreamIterator(
                 queryDefinition,
                 continuationToken,
-                requestOptions);
+                requestOptions) is FeedIteratorInternal containerStreamIterator))
+            {
+                // This class should inherit from DatabaseInteral to avoid the downcasting hacks.
+                throw new InvalidOperationException($"Expected FeedIteratorInternal.");
+            }
 
             return new FeedIteratorCore<T>(
                 containerStreamIterator,
-                this.ClientContext.ResponseFactory.CreateQueryFeedResponse<T>);
+                (response) => this.ClientContext.ResponseFactory.CreateQueryFeedResponse<T>(
+                    responseMessage: response,
+                    resourceType: ResourceType.Collection));
         }
 
         public override FeedIterator<T> GetUserQueryIterator<T>(QueryDefinition queryDefinition,
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            FeedIterator userStreamIterator = this.GetUserQueryStreamIterator(
+            if (!(this.GetUserQueryStreamIterator(
                 queryDefinition,
                 continuationToken,
-                requestOptions);
+                requestOptions) is FeedIteratorInternal userStreamIterator))
+            {
+                // This class should inherit from DatabaseInteral to avoid the downcasting hacks.
+                throw new InvalidOperationException($"Expected FeedIteratorInternal.");
+            }
 
             return new FeedIteratorCore<T>(
                 userStreamIterator,
-                this.ClientContext.ResponseFactory.CreateQueryFeedResponse<T>);
+                (response) => this.ClientContext.ResponseFactory.CreateQueryFeedResponse<T>(
+                    responseMessage: response,
+                    resourceType: ResourceType.User));
         }
 
         public FeedIterator GetUserQueryStreamIterator(QueryDefinition queryDefinition,
@@ -496,6 +531,7 @@ namespace Microsoft.Azure.Cosmos
                streamPayload: streamPayload,
                requestOptions: requestOptions,
                requestEnricher: (httpRequestMessage) => httpRequestMessage.AddThroughputHeader(throughput),
+               diagnosticsScope: null,
                cancellationToken: cancellationToken);
         }
 
@@ -513,6 +549,7 @@ namespace Microsoft.Azure.Cosmos
                streamPayload: streamPayload,
                requestOptions: requestOptions,
                requestEnricher: null,
+               diagnosticsScope: null,
                cancellationToken: cancellationToken);
         }
 
@@ -530,6 +567,7 @@ namespace Microsoft.Azure.Cosmos
                streamPayload: streamPayload,
                requestOptions: requestOptions,
                requestEnricher: null,
+               diagnosticsScope: null,
                cancellationToken: cancellationToken);
         }
 
@@ -557,7 +595,7 @@ namespace Microsoft.Azure.Cosmos
             RequestOptions requestOptions = null,
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            return ProcessResourceOperationStreamAsync(
+            return this.ProcessResourceOperationStreamAsync(
                 streamPayload: null,
                 operationType: operationType,
                 linkUri: this.LinkUri,
@@ -582,6 +620,7 @@ namespace Microsoft.Azure.Cosmos
               streamPayload: streamPayload,
               requestOptions: requestOptions,
               requestEnricher: null,
+              diagnosticsScope: null,
               cancellationToken: cancellationToken);
         }
     }

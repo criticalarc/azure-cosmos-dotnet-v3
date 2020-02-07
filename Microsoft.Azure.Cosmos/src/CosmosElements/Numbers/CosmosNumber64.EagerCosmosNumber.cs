@@ -1,10 +1,11 @@
 ﻿//------------------------------------------------------------
 // Copyright (c) Microsoft Corporation.  All rights reserved.
 //------------------------------------------------------------
-namespace Microsoft.Azure.Cosmos.CosmosElements
+namespace Microsoft.Azure.Cosmos.CosmosElements.Numbers
 {
     using System;
     using Microsoft.Azure.Cosmos.Json;
+    using Microsoft.Azure.Cosmos.Query.Core;
 
 #if INTERNAL
 #pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
@@ -24,32 +25,6 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
                 this.number = number;
             }
 
-            public override bool IsFloatingPoint
-            {
-                get
-                {
-                    return this.number.IsDouble;
-                }
-            }
-
-            public override bool IsInteger
-            {
-                get
-                {
-                    return this.number.IsInteger;
-                }
-            }
-
-            public override double? AsFloatingPoint()
-            {
-                return Number64.ToDouble(this.number);
-            }
-
-            public override long? AsInteger()
-            {
-                return Number64.ToLong(this.number);
-            }
-
             public override void WriteTo(IJsonWriter jsonWriter)
             {
                 if (jsonWriter == null)
@@ -57,7 +32,12 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
                     throw new ArgumentNullException($"{nameof(jsonWriter)}");
                 }
 
-                jsonWriter.WriteNumberValue(this.AsFloatingPoint().Value);
+                jsonWriter.WriteNumberValue(this.number);
+            }
+
+            public override Number64 GetValue()
+            {
+                return this.number;
             }
         }
     }

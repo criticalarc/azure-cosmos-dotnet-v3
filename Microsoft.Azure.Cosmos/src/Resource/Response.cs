@@ -66,32 +66,6 @@ namespace Microsoft.Azure.Cosmos
         /// <summary>
         /// Gets the cosmos diagnostics information for the current request to Azure Cosmos DB service
         /// </summary>
-        public CosmosDiagnostics Diagnostics { get; set; }
-
-        /// <summary>
-        /// Gets the maximum size limit for this entity from the Azure Cosmos DB service.
-        /// </summary>
-        /// <value>
-        /// The maximum size limit for this entity. Measured in kilobytes for document resources 
-        /// and in counts for other resources.
-        /// </value>
-        /// <remarks>
-        /// To get public access to the quota information do the following
-        /// cosmosResponse.Headers.GetHeaderValue("x-ms-resource-quota")
-        /// </remarks>
-        internal abstract string MaxResourceQuota { get; }
-
-        /// <summary>
-        /// Gets the current size of this entity from the Azure Cosmos DB service.
-        /// </summary>
-        /// <value>
-        /// The current size for this entity. Measured in kilobytes for document resources 
-        /// and in counts for other resources.
-        /// </value>
-        /// <remarks>
-        /// To get public access to the quota information do the following
-        /// cosmosResponse.Headers.GetHeaderValue("x-ms-resource-usage")
-        /// </remarks>
-        internal abstract string CurrentResourceQuotaUsage { get; }
+        public abstract CosmosDiagnostics Diagnostics { get; }
     }
 }

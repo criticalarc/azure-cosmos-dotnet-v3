@@ -3,10 +3,9 @@
 //     Copyright (c) Microsoft Corporation.  All rights reserved.
 // </copyright>
 //-----------------------------------------------------------------------
-namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
+namespace Microsoft.Azure.Cosmos.Tests.Json
 {
     using System;
-    using System.IO;
     using System.Text;
     using Microsoft.Azure.Cosmos.Json;
     using Microsoft.Azure.Documents;
@@ -15,6 +14,7 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
     using Newtonsoft.Json;
     using Newtonsoft.Json.Converters;
     using System.Globalization;
+    using Microsoft.Azure.Cosmos.Json.Interop;
 
     [TestClass]
     public class NewtonsoftInteropTests
@@ -234,16 +234,15 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
 
         private static string NewtonsoftFormat(string json)
         {
-            JsonNewtonsoftReader newtonsoftReader = new JsonNewtonsoftNewtonsoftTextReader(json);
-            JsonNewtonsoftWriter newtonsoftWriter = new JsonNewtonsoftNewtonsoftTextWriter();
-            newtonsoftWriter.WriteAll(newtonsoftReader);
-            return Encoding.UTF8.GetString(newtonsoftWriter.GetResult());
+            NewtonsoftToCosmosDBReader newtonsoftToCosmosDBReader = NewtonsoftToCosmosDBReader.CreateFromString(json);
+            NewtonsoftToCosmosDBWriter newtonsoftToCosmosDBWriter = NewtonsoftToCosmosDBWriter.CreateTextWriter();
+            newtonsoftToCosmosDBWriter.WriteAll(newtonsoftToCosmosDBReader);
+            return Encoding.UTF8.GetString(newtonsoftToCosmosDBWriter.GetResult().ToArray());
         }
 
-        private static void VerifyReader<T>(byte[] payload, T expectedDeserializedValue)
+        private static void VerifyReader<T>(ReadOnlyMemory<byte> payload, T expectedDeserializedValue)
         {
-            MemoryStream memoryStream = new MemoryStream(payload);
-            using (JsonCosmosDBReader reader = new JsonCosmosDBReader(memoryStream))
+            using (CosmosDBToNewtonsoftReader reader = new CosmosDBToNewtonsoftReader(payload))
             {
                 JsonSerializer serializer = new JsonSerializer();
                 T actualDeserializedValue = serializer.Deserialize<T>(reader);
@@ -256,7 +255,7 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
         private static void VerifyBinaryReader<T>(T expectedDeserializedValue)
         {
             string stringValue = NewtonsoftInteropTests.NewtonsoftFormat(JsonConvert.SerializeObject(expectedDeserializedValue));
-            byte[] result = JsonPerfMeasurement.ConvertTextToBinary(stringValue);
+            ReadOnlyMemory<byte> result = JsonPerfMeasurement.ConvertTextToBinary(stringValue);
             NewtonsoftInteropTests.VerifyReader<T>(result, expectedDeserializedValue);
         }
 
@@ -269,12 +268,12 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
 
         private static void VerifyWriter<T>(JsonSerializationFormat jsonSerializationFormat, T expectedDeserializedValue)
         {
-            using (JsonCosmosDBWriter writer = new JsonCosmosDBWriter(jsonSerializationFormat))
+            using (CosmosDBToNewtonsoftWriter writer = new CosmosDBToNewtonsoftWriter(jsonSerializationFormat))
             {
                 JsonSerializer serializer = new JsonSerializer();
                 serializer.Serialize(writer, expectedDeserializedValue);
 
-                byte[] result = writer.GetResult();
+                byte[] result = writer.GetResult().ToArray();
                 string actualSerializedValue;
                 if (jsonSerializationFormat == JsonSerializationFormat.Binary)
                 {
@@ -350,7 +349,7 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
             /// </returns>
             public override object ReadJson(Newtonsoft.Json.JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
             {
-                if (reader.TokenType != Newtonsoft.Json.JsonToken.Integer)
+                if (reader.TokenType != Newtonsoft.Json.JsonToken.Integer && reader.TokenType != Newtonsoft.Json.JsonToken.Float)
                 {
                     throw new Exception(RMResources.DateTimeConverterInvalidReaderValue);
                 }

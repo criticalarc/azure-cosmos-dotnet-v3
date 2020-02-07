@@ -13,47 +13,30 @@ namespace Microsoft.Azure.Cosmos
     /// <summary>
     /// Response of a cross partition key batch request.
     /// </summary>
-    internal class PartitionKeyRangeBatchResponse : BatchResponse
+    internal class PartitionKeyRangeBatchResponse : TransactionalBatchResponse
     {
         // Results sorted in the order operations had been added.
-        private readonly BatchOperationResult[] resultsByOperationIndex;
+        private readonly TransactionalBatchOperationResult[] resultsByOperationIndex;
+        private readonly TransactionalBatchResponse serverResponse;
         private bool isDisposed;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="PartitionKeyRangeBatchResponse"/> class.
-        /// </summary>
-        /// <param name="statusCode">Completion status code of the batch request.</param>
-        /// <param name="subStatusCode">Provides further details about why the batch was not processed.</param>
-        /// <param name="operations">Operations that were supposed to be executed, but weren't.</param>
-        /// <param name="errorMessage">The reason for failure if any.</param>
-        // This constructor is expected to be used when the batch is not executed at all (if it is a bad request).
-        internal PartitionKeyRangeBatchResponse(
-            HttpStatusCode statusCode,
-            SubStatusCodes subStatusCode,
-            string errorMessage,
-            IReadOnlyList<ItemBatchOperation> operations)
-            : base(statusCode, subStatusCode, errorMessage, operations)
-        {
-        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PartitionKeyRangeBatchResponse"/> class.
         /// </summary>
         /// <param name="originalOperationsCount">Original operations that generated the server responses.</param>
         /// <param name="serverResponse">Response from the server.</param>
-        /// <param name="serializer">Serializer to deserialize response resource body streams.</param>
+        /// <param name="serializerCore">Serializer to deserialize response resource body streams.</param>
         internal PartitionKeyRangeBatchResponse(
             int originalOperationsCount,
-            BatchResponse serverResponse,
-            CosmosSerializer serializer)
+            TransactionalBatchResponse serverResponse,
+            CosmosSerializerCore serializerCore)
         {
             this.StatusCode = serverResponse.StatusCode;
 
-            this.ServerResponse = serverResponse;
-            this.resultsByOperationIndex = new BatchOperationResult[originalOperationsCount];
+            this.serverResponse = serverResponse;
+            this.resultsByOperationIndex = new TransactionalBatchOperationResult[originalOperationsCount];
 
             StringBuilder errorMessageBuilder = new StringBuilder();
-            List<string> activityIds = new List<string>();
             List<ItemBatchOperation> itemBatchOperations = new List<ItemBatchOperation>();
             // We expect number of results == number of operations here
             for (int index = 0; index < serverResponse.Operations.Count; index++)
@@ -74,21 +57,22 @@ namespace Microsoft.Azure.Cosmos
                 errorMessageBuilder.AppendFormat("{0}; ", serverResponse.ErrorMessage);
             }
 
-            this.ActivityId = serverResponse.ActivityId;
             this.ErrorMessage = errorMessageBuilder.Length > 2 ? errorMessageBuilder.ToString(0, errorMessageBuilder.Length - 2) : null;
             this.Operations = itemBatchOperations;
-            this.Serializer = serializer;
+            this.SerializerCore = serializerCore;
         }
 
         /// <summary>
         /// Gets the ActivityId that identifies the server request made to execute the batch request.
         /// </summary>
-        public override string ActivityId { get; }
+        public override string ActivityId => this.serverResponse.ActivityId;
 
-        internal override CosmosSerializer Serializer { get; }
+        /// <inheritdoc />
+        public override CosmosDiagnostics Diagnostics => this.serverResponse.Diagnostics;
 
-        // for unit testing only
-        internal BatchResponse ServerResponse { get; private set; }
+        internal override CosmosDiagnosticsContext DiagnosticsContext => this.serverResponse.DiagnosticsContext;
+
+        internal override CosmosSerializerCore SerializerCore { get; }
 
         /// <summary>
         /// Gets the number of operation results.
@@ -96,7 +80,7 @@ namespace Microsoft.Azure.Cosmos
         public override int Count => this.resultsByOperationIndex.Length;
 
         /// <inheritdoc />
-        public override BatchOperationResult this[int index] => this.resultsByOperationIndex[index];
+        public override TransactionalBatchOperationResult this[int index] => this.resultsByOperationIndex[index];
 
         /// <summary>
         /// Gets the result of the operation at the provided index in the batch - the returned result has a Resource of provided type.
@@ -104,37 +88,42 @@ namespace Microsoft.Azure.Cosmos
         /// <typeparam name="T">Type to which the Resource in the operation result needs to be deserialized to, when present.</typeparam>
         /// <param name="index">0-based index of the operation in the batch whose result needs to be returned.</param>
         /// <returns>Result of batch operation that contains a Resource deserialized to specified type.</returns>
-        public override BatchOperationResult<T> GetOperationResultAtIndex<T>(int index)
+        public override TransactionalBatchOperationResult<T> GetOperationResultAtIndex<T>(int index)
         {
             if (index >= this.Count)
             {
                 throw new IndexOutOfRangeException();
             }
 
-            BatchOperationResult result = this.resultsByOperationIndex[index];
+            TransactionalBatchOperationResult result = this.resultsByOperationIndex[index];
 
             T resource = default(T);
             if (result.ResourceStream != null)
             {
-                resource = this.Serializer.FromStream<T>(result.ResourceStream);
+                resource = this.SerializerCore.FromStream<T>(result.ResourceStream);
             }
 
-            return new BatchOperationResult<T>(result, resource);
+            return new TransactionalBatchOperationResult<T>(result, resource);
         }
 
         /// <summary>
         /// Gets an enumerator over the operation results.
         /// </summary>
         /// <returns>Enumerator over the operation results.</returns>
-        public override IEnumerator<BatchOperationResult> GetEnumerator()
+        public override IEnumerator<TransactionalBatchOperationResult> GetEnumerator()
         {
-            foreach (BatchOperationResult result in this.resultsByOperationIndex)
+            foreach (TransactionalBatchOperationResult result in this.resultsByOperationIndex)
             {
                 yield return result;
             }
         }
 
-        internal override IEnumerable<string> GetActivityIds()
+#if INTERNAL
+        public 
+#else
+        internal
+#endif
+        override IEnumerable<string> GetActivityIds()
         {
             return new string[1] { this.ActivityId };
         }
@@ -148,7 +137,7 @@ namespace Microsoft.Azure.Cosmos
             if (disposing && !this.isDisposed)
             {
                 this.isDisposed = true;
-                this.ServerResponse?.Dispose();
+                this.serverResponse?.Dispose();
             }
 
             base.Dispose(disposing);

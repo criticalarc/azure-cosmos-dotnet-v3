@@ -6,9 +6,7 @@ namespace Microsoft.Azure.Cosmos.Core.Tests
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using System.Net.Http;
-    using Microsoft.Azure.Cosmos.Query;
     using Microsoft.Azure.Documents;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using Moq;
@@ -22,16 +20,17 @@ namespace Microsoft.Azure.Cosmos.Core.Tests
             string databaseId = "db1234";
             string crId = "cr42";
 
+            Mock<CosmosClient> mockClient = new Mock<CosmosClient>();
+            mockClient.Setup(x => x.Endpoint).Returns(new Uri("http://localhost"));
+
             CosmosClientContext context = new ClientContextCore(
-                client: null,
-                clientOptions: null,
-                userJsonSerializer: null,
-                defaultJsonSerializer: null,
-                sqlQuerySpecSerializer: null,
+                client: mockClient.Object,
+                clientOptions: new CosmosClientOptions(),
+                serializerCore: null,
                 cosmosResponseFactory: null,
                 requestHandler: null,
                 documentClient: null,
-                documentQueryClient: new Mock<IDocumentQueryClient>().Object);
+                userAgent: null);
 
             DatabaseCore db = new DatabaseCore(context, databaseId);
             Assert.AreEqual(db.LinkUri.OriginalString, "dbs/" + databaseId);
@@ -102,9 +101,11 @@ namespace Microsoft.Azure.Cosmos.Core.Tests
         [TestMethod]
         public void ValidateSetItemRequestOptions()
         {
-            ItemRequestOptions options = new ItemRequestOptions();
-            options.PreTriggers = new List<string>() { "preTrigger" };
-            options.PostTriggers = new List<string>() { "postTrigger" };
+            ItemRequestOptions options = new ItemRequestOptions
+            {
+                PreTriggers = new List<string>() { "preTrigger" },
+                PostTriggers = new List<string>() { "postTrigger" }
+            };
 
             RequestMessage httpRequest = new RequestMessage(
                 HttpMethod.Post,
@@ -114,6 +115,52 @@ namespace Microsoft.Azure.Cosmos.Core.Tests
 
             Assert.IsTrue(httpRequest.Headers.TryGetValue(HttpConstants.HttpHeaders.PreTriggerInclude, out string preTriggerHeader));
             Assert.IsTrue(httpRequest.Headers.TryGetValue(HttpConstants.HttpHeaders.PostTriggerInclude, out string postTriggerHeader));
+        }
+
+        [TestMethod]
+        public void InitializeBatchExecutorForContainer_Null_WhenAllowBulk_False()
+        {
+            string databaseId = "db1234";
+            string crId = "cr42";
+
+            Mock<CosmosClient> mockClient = new Mock<CosmosClient>();
+            mockClient.Setup(x => x.Endpoint).Returns(new Uri("http://localhost"));
+
+            CosmosClientContext context = new ClientContextCore(
+                client: mockClient.Object,
+                clientOptions: new CosmosClientOptions(),
+                serializerCore: null,
+                cosmosResponseFactory: null,
+                requestHandler: null,
+                documentClient: null,
+                userAgent: null);
+
+            DatabaseCore db = new DatabaseCore(context, databaseId);
+            ContainerCore container = new ContainerCore(context, db, crId);
+            Assert.IsNull(container.BatchExecutor);
+        }
+
+        [TestMethod]
+        public void InitializeBatchExecutorForContainer_NotNull_WhenAllowBulk_True()
+        {
+            string databaseId = "db1234";
+            string crId = "cr42";
+
+            Mock<CosmosClient> mockClient = new Mock<CosmosClient>();
+            mockClient.Setup(x => x.Endpoint).Returns(new Uri("http://localhost"));
+
+            CosmosClientContext context = new ClientContextCore(
+                client: mockClient.Object,
+                clientOptions: new CosmosClientOptions() { AllowBulkExecution = true },
+                serializerCore: null,
+                cosmosResponseFactory: null,
+                requestHandler: null,
+                documentClient: null,
+                userAgent: null);
+
+            DatabaseCore db = new DatabaseCore(context, databaseId);
+            ContainerCore container = new ContainerCore(context, db, crId);
+            Assert.IsNotNull(container.BatchExecutor);
         }
 
     }

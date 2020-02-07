@@ -5,6 +5,7 @@
 namespace Microsoft.Azure.Cosmos.Fluent
 {
     using System;
+    using System.Net;
     using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Client;
@@ -145,6 +146,36 @@ namespace Microsoft.Azure.Cosmos.Fluent
         }
 
         /// <summary>
+        /// Limits the operations to the provided endpoint on the CosmosClientBuilder constructor.
+        /// </summary>
+        /// <param name="limitToEndpoint">Whether operations are limited to the endpoint or not.</param>
+        /// <value>Default value is false.</value>
+        /// <remarks>
+        /// When the value of <paramref name="limitToEndpoint"/> is false, the SDK will automatically discover all account write and read regions, and use them when the configured application region is not available.
+        /// When set to true, availability is limited to the endpoint specified on the CosmosClientBuilder constructor.
+        /// Using <see cref="WithApplicationRegion(string)"/> is not allowed when the value is true. </remarks>
+        /// <example>
+        /// The example below creates a new <see cref="CosmosClientBuilder"/> to limit the endpoint to East US.
+        /// <code language="c#">
+        /// <![CDATA[
+        /// CosmosClientBuilder cosmosClientBuilder = new CosmosClientBuilder(
+        ///     accountEndpoint: "https://testcosmos-eastus.documents.azure.com:443/",
+        ///     authKeyOrResourceToken: "SuperSecretKey")
+        /// .WithLimitToEndpoint(true);
+        /// CosmosClient client = cosmosClientBuilder.Build();
+        /// ]]>
+        /// </code>
+        /// </example>
+        /// <returns>The current <see cref="CosmosClientBuilder"/>.</returns>
+        /// <seealso href="https://docs.microsoft.com/azure/cosmos-db/high-availability">High availability</seealso>
+        /// <seealso cref="CosmosClientOptions.LimitToEndpoint"/>
+        public CosmosClientBuilder WithLimitToEndpoint(bool limitToEndpoint)
+        {
+            this.clientOptions.LimitToEndpoint = limitToEndpoint;
+            return this;
+        }
+
+        /// <summary>
         /// Sets the request timeout in seconds when connecting to the Azure Cosmos DB service.
         /// </summary>
         /// <param name="requestTimeout">A time to use as timeout for operations.</param>
@@ -199,6 +230,10 @@ namespace Microsoft.Azure.Cosmos.Fluent
         /// Together with MaxRequestsPerTcpConnection, this setting limits the number of requests that are simultaneously sent to a single Cosmos DB back-end(MaxRequestsPerTcpConnection x MaxTcpConnectionPerEndpoint).
         /// The default value is 65,535. Value must be greater than or equal to 16.
         /// </param>
+        /// <param name="portReuseMode">
+        /// (Direct/TCP) Controls the client port reuse policy used by the transport stack.
+        /// The default value is PortReuseMode.ReuseUnicastPort.
+        /// </param>
         /// <remarks>
         /// For more information, see <see href="https://docs.microsoft.com/azure/documentdb/documentdb-performance-tips#direct-connection">Connection policy: Use direct connection mode</see>.
         /// </remarks>
@@ -207,12 +242,14 @@ namespace Microsoft.Azure.Cosmos.Fluent
         internal CosmosClientBuilder WithConnectionModeDirect(TimeSpan? idleTcpConnectionTimeout = null,
             TimeSpan? openTcpConnectionTimeout = null,
             int? maxRequestsPerTcpConnection = null,
-            int? maxTcpConnectionsPerEndpoint = null)
+            int? maxTcpConnectionsPerEndpoint = null,
+            Cosmos.PortReuseMode? portReuseMode = null)
         {
             this.clientOptions.IdleTcpConnectionTimeout = idleTcpConnectionTimeout;
             this.clientOptions.OpenTcpConnectionTimeout = openTcpConnectionTimeout;
             this.clientOptions.MaxRequestsPerTcpConnection = maxRequestsPerTcpConnection;
             this.clientOptions.MaxTcpConnectionsPerEndpoint = maxTcpConnectionsPerEndpoint;
+            this.clientOptions.PortReuseMode = portReuseMode;
 
             this.clientOptions.ConnectionMode = ConnectionMode.Direct;
             this.clientOptions.ConnectionProtocol = Protocol.Tcp;
@@ -236,20 +273,25 @@ namespace Microsoft.Azure.Cosmos.Fluent
         /// Sets the connection mode to Gateway. This is used by the client when connecting to the Azure Cosmos DB service.
         /// </summary>
         /// <param name="maxConnectionLimit">The number specifies the time to wait for response to come back from network peer. Default is 60 connections</param>
+        /// <param name="webProxy">Get or set the proxy information used for web requests.</param>
         /// <remarks>
         /// For more information, see <see href="https://docs.microsoft.com/azure/documentdb/documentdb-performance-tips#direct-connection">Connection policy: Use direct connection mode</see>.
         /// </remarks>
         /// <returns>The current <see cref="CosmosClientBuilder"/>.</returns>
         /// <seealso cref="CosmosClientOptions.ConnectionMode"/>
         /// <seealso cref="CosmosClientOptions.GatewayModeMaxConnectionLimit"/>
-        public CosmosClientBuilder WithConnectionModeGateway(int? maxConnectionLimit = null)
+        public CosmosClientBuilder WithConnectionModeGateway(int? maxConnectionLimit = null,
+            IWebProxy webProxy = null)
         {
             this.clientOptions.ConnectionMode = ConnectionMode.Gateway;
             this.clientOptions.ConnectionProtocol = Protocol.Https;
+
             if (maxConnectionLimit.HasValue)
             {
                 this.clientOptions.GatewayModeMaxConnectionLimit = maxConnectionLimit.Value;
             }
+
+            this.clientOptions.WebProxy = webProxy;
 
             return this;
         }
@@ -329,11 +371,33 @@ namespace Microsoft.Azure.Cosmos.Fluent
         }
 
         /// <summary>
+        /// Allows optimistic batching of requests to service. Setting this option might impact the latency of the operations. Hence this option is recommended for non-latency sensitive scenarios only.
+        /// </summary>
+        /// <param name="enabled">Whether <see cref="CosmosClientOptions.AllowBulkExecution"/> is enabled.</param>
+        /// <returns>The <see cref="CosmosClientBuilder"/> object</returns>
+        /// <seealso cref="CosmosClientOptions.AllowBulkExecution"/>
+        public CosmosClientBuilder WithBulkExecution(bool enabled)
+        {
+            this.clientOptions.AllowBulkExecution = enabled;
+            return this;
+        }
+
+        /// <summary>
         /// The event handler to be invoked before the request is sent.
         /// </summary>
         internal CosmosClientBuilder WithSendingRequestEventArgs(EventHandler<SendingRequestEventArgs> sendingRequestEventArgs)
         {
             this.clientOptions.SendingRequestEventArgs = sendingRequestEventArgs;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the ambient Session Container to use for this CosmosClient.
+        /// This is used to track session tokens per client for requests made to the store.
+        /// </summary>
+        internal CosmosClientBuilder WithSessionContainer(ISessionContainer sessionContainer)
+        {
+            this.clientOptions.SessionContainer = sessionContainer;
             return this;
         }
 

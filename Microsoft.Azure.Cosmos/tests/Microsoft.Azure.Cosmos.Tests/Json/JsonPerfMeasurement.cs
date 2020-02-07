@@ -3,14 +3,16 @@
 //     Copyright (c) Microsoft Corporation.  All rights reserved.
 // </copyright>
 //-----------------------------------------------------------------------
-namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
+namespace Microsoft.Azure.Cosmos.Tests.Json
 {
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
-    using System.Linq;
     using System.Text;
     using Microsoft.Azure.Cosmos.Json;
+    using Microsoft.Azure.Cosmos.Json.Interop;
+    using Microsoft.Azure.Cosmos.Query;
+    using Microsoft.Azure.Cosmos.Query.Core.Metrics;
 
     internal static class JsonPerfMeasurement
     {
@@ -36,25 +38,65 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
             byte[] utf8ByteArray = Encoding.UTF8.GetBytes(json);
 
             // Text
-            TimeSpan textReaderTime = JsonPerfMeasurement.MeasureReadPerformance(JsonReader.Create(utf8ByteArray), numberOfIterations);
-            TimeSpan textWriterTime = JsonPerfMeasurement.MeasureWritePerformance(JsonWriter.Create(JsonSerializationFormat.Text), json, numberOfIterations);
-            TimeSpan textNavigatorTime = JsonPerfMeasurement.MeasureNavigationPerformance(JsonNavigator.Create(utf8ByteArray), numberOfIterations);
-            JsonExecutionTimes textExecutionTimes = new JsonExecutionTimes(textReaderTime, textWriterTime, textNavigatorTime, utf8ByteArray.Length, "Text");
+            TimeSpan textReaderTime = JsonPerfMeasurement.MeasureReadPerformance(
+                JsonReader.Create(utf8ByteArray),
+                numberOfIterations);
+            TimeSpan textWriterTime = JsonPerfMeasurement.MeasureWritePerformance(
+                JsonWriter.Create(JsonSerializationFormat.Text),
+                json,
+                numberOfIterations);
+            TimeSpan textNavigatorTime = JsonPerfMeasurement.MeasureNavigationPerformance(
+                JsonNavigator.Create(utf8ByteArray),
+                numberOfIterations);
+            JsonExecutionTimes textExecutionTimes = new JsonExecutionTimes(
+                textReaderTime,
+                textWriterTime,
+                textNavigatorTime,
+                utf8ByteArray.Length,
+                "Text");
 
             // Newtonsoft
-            TimeSpan newtonsoftReaderTime = JsonPerfMeasurement.MeasureReadPerformance(new JsonNewtonsoftNewtonsoftTextReader(json), numberOfIterations);
-            TimeSpan newtonsoftWriterTime = JsonPerfMeasurement.MeasureWritePerformance(new JsonNewtonsoftNewtonsoftTextWriter(), json, numberOfIterations);
-            TimeSpan newtonsoftNavigatorTime = JsonPerfMeasurement.MeasureNavigationPerformance(new JsonNewtonsoftNavigator(json), numberOfIterations);
-            JsonExecutionTimes newtonsoftExecutionTimes = new JsonExecutionTimes(newtonsoftReaderTime, newtonsoftWriterTime, newtonsoftNavigatorTime, json.Length, "Newtonsoft");
+            TimeSpan newtonsoftReaderTime = JsonPerfMeasurement.MeasureReadPerformance(
+                NewtonsoftToCosmosDBReader.CreateFromString(json),
+                numberOfIterations);
+            TimeSpan newtonsoftWriterTime = JsonPerfMeasurement.MeasureWritePerformance(
+                NewtonsoftToCosmosDBWriter.CreateTextWriter(),
+                json,
+                numberOfIterations);
+            TimeSpan newtonsoftNavigatorTime = JsonPerfMeasurement.MeasureNavigationPerformance(
+                new JsonNewtonsoftNavigator(json),
+                numberOfIterations);
+            JsonExecutionTimes newtonsoftExecutionTimes = new JsonExecutionTimes(
+                newtonsoftReaderTime,
+                newtonsoftWriterTime,
+                newtonsoftNavigatorTime,
+                json.Length,
+                "Newtonsoft");
 
             // Binary
             byte[] binaryPayload = JsonTestUtils.ConvertTextToBinary(json);
-            TimeSpan binaryReaderTime = JsonPerfMeasurement.MeasureReadPerformance(JsonReader.Create(binaryPayload), numberOfIterations);
-            TimeSpan binarytWriterTime = JsonPerfMeasurement.MeasureWritePerformance(JsonWriter.Create(JsonSerializationFormat.Binary), json, numberOfIterations);
-            TimeSpan binaryNavigatorTime = JsonPerfMeasurement.MeasureNavigationPerformance(JsonNavigator.Create(binaryPayload), numberOfIterations);
-            JsonExecutionTimes binaryExecutionTimes = new JsonExecutionTimes(binaryReaderTime, binarytWriterTime, binaryNavigatorTime, binaryPayload.Length, "Binary");
+            TimeSpan binaryReaderTime = JsonPerfMeasurement.MeasureReadPerformance(
+                JsonReader.Create(binaryPayload),
+                numberOfIterations);
+            TimeSpan binarytWriterTime = JsonPerfMeasurement.MeasureWritePerformance(
+                JsonWriter.Create(JsonSerializationFormat.Binary),
+                json,
+                numberOfIterations);
+            TimeSpan binaryNavigatorTime = JsonPerfMeasurement.MeasureNavigationPerformance(
+                JsonNavigator.Create(binaryPayload),
+                numberOfIterations);
+            JsonExecutionTimes binaryExecutionTimes = new JsonExecutionTimes(
+                binaryReaderTime,
+                binarytWriterTime,
+                binaryNavigatorTime,
+                binaryPayload.Length,
+                "Binary");
 
-            JsonPerfMeasurement.PrintStatisticsTable(filename, textExecutionTimes, newtonsoftExecutionTimes, binaryExecutionTimes);
+            JsonPerfMeasurement.PrintStatisticsTable(
+                filename,
+                textExecutionTimes,
+                newtonsoftExecutionTimes,
+                binaryExecutionTimes);
         }
 
         public static TimeSpan MeasureReadPerformance(IJsonReader jsonReader, int numberOfIterations = 1)
@@ -62,10 +104,73 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
             Stopwatch stopwatch = new Stopwatch();
             for (int i = 0; i < numberOfIterations; i++)
             {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
                 stopwatch.Start();
                 while (jsonReader.Read())
                 {
-                    /* all the work is done in the loop */
+                    // Materialize the value
+                    switch (jsonReader.CurrentTokenType)
+                    {
+                        case JsonTokenType.BeginArray:
+                        case JsonTokenType.EndArray:
+                        case JsonTokenType.BeginObject:
+                        case JsonTokenType.EndObject:
+                        case JsonTokenType.Null:
+                        case JsonTokenType.True:
+                        case JsonTokenType.False:
+                            // Single byte tokens
+                            break;
+
+                        case JsonTokenType.String:
+                        case JsonTokenType.FieldName:
+                            string stringValue = jsonReader.GetStringValue();
+                            break;
+
+                        case JsonTokenType.Number:
+                            Number64 number64Value = jsonReader.GetNumberValue();
+                            break;
+
+                        case JsonTokenType.Int8:
+                            sbyte int8Value = jsonReader.GetInt8Value();
+                            break;
+
+                        case JsonTokenType.Int16:
+                            short int16Value = jsonReader.GetInt16Value();
+                            break;
+
+                        case JsonTokenType.Int32:
+                            int int32Value = jsonReader.GetInt32Value();
+                            break;
+
+                        case JsonTokenType.Int64:
+                            long int64Value = jsonReader.GetInt64Value();
+                            break;
+
+                        case JsonTokenType.UInt32:
+                            uint uInt32Value = jsonReader.GetUInt32Value();
+                            break;
+
+                        case JsonTokenType.Float32:
+                            float float32Value = jsonReader.GetFloat32Value();
+                            break;
+
+                        case JsonTokenType.Float64:
+                            double doubleValue = jsonReader.GetFloat64Value();
+                            break;
+
+                        case JsonTokenType.Guid:
+                            Guid guidValue = jsonReader.GetGuidValue();
+                            break;
+
+                        case JsonTokenType.Binary:
+                            ReadOnlyMemory<byte> binaryValue = jsonReader.GetBinaryValue();
+                            break;
+
+                        default:
+                            throw new ArgumentException("$Unknown token type.");
+                    }
                 }
 
                 stopwatch.Stop();
@@ -76,7 +181,10 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
 
         public static TimeSpan MeasureNavigationPerformance(IJsonNavigator jsonNavigator, int numberOfIterations = 1)
         {
-            JsonTokenInfo[] tokensFromNode;
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+
+            JsonToken[] tokensFromNode;
             Stopwatch stopwatch = new Stopwatch();
             for (int i = 0; i < numberOfIterations; i++)
             {
@@ -95,14 +203,17 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
 
         public static TimeSpan MeasureWritePerformance(IJsonWriter jsonWriter, string json, int numberOfIterations = 1)
         {
-            JsonTokenInfo[] tokens = JsonPerfMeasurement.Tokenize(json);
+            JsonToken[] tokens = JsonPerfMeasurement.Tokenize(json);
             return JsonPerfMeasurement.MeasureWritePerformance(tokens, jsonWriter, numberOfIterations);
         }
 
-        public static TimeSpan MeasureWritePerformance(JsonTokenInfo[] tokensToWrite, IJsonWriter jsonWriter, int numberOfIterations = 1)
+        public static TimeSpan MeasureWritePerformance(JsonToken[] tokensToWrite, IJsonWriter jsonWriter, int numberOfIterations = 1)
         {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+
             Stopwatch stopwatch = new Stopwatch();
-            foreach (JsonTokenInfo token in tokensToWrite)
+            foreach (JsonToken token in tokensToWrite)
             {
                 switch (token.JsonTokenType)
                 {
@@ -127,15 +238,15 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
                         stopwatch.Stop();
                         break;
                     case JsonTokenType.String:
-                        string stringWithQuotes = Encoding.Unicode.GetString(token.BufferedToken.ToArray());
-                        string value = stringWithQuotes.Substring(1, stringWithQuotes.Length - 2);
+                        string stringValue = (token as JsonStringToken).Value;
                         stopwatch.Start();
-                        jsonWriter.WriteStringValue(value);
+                        jsonWriter.WriteStringValue(stringValue);
                         stopwatch.Stop();
                         break;
                     case JsonTokenType.Number:
+                        Number64 numberValue = (token as JsonNumberToken).Value;
                         stopwatch.Start();
-                        jsonWriter.WriteNumberValue(token.Value);
+                        jsonWriter.WriteNumberValue(numberValue);
                         stopwatch.Stop();
                         break;
                     case JsonTokenType.True:
@@ -154,10 +265,9 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
                         stopwatch.Stop();
                         break;
                     case JsonTokenType.FieldName:
-                        string fieldNameWithQuotes = Encoding.Unicode.GetString(token.BufferedToken.ToArray());
-                        string fieldName = fieldNameWithQuotes.Substring(1, fieldNameWithQuotes.Length - 2);
+                        string fieldNameValue = (token as JsonFieldNameToken).Value;
                         stopwatch.Start();
-                        jsonWriter.WriteFieldName(fieldName);
+                        jsonWriter.WriteFieldName(fieldNameValue);
                         stopwatch.Stop();
                         break;
                     case JsonTokenType.NotStarted:
@@ -169,15 +279,15 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
             return stopwatch.Elapsed;
         }
 
-        public static JsonTokenInfo[] Tokenize(string json)
+        public static JsonToken[] Tokenize(string json)
         {
             IJsonReader jsonReader = JsonReader.Create(Encoding.UTF8.GetBytes(json));
             return JsonPerfMeasurement.Tokenize(jsonReader, json);
         }
 
-        public static JsonTokenInfo[] Tokenize(IJsonReader jsonReader, string json)
+        public static JsonToken[] Tokenize(IJsonReader jsonReader, string json)
         {
-            List<JsonTokenInfo> tokensFromReader = new List<JsonTokenInfo>();
+            List<JsonToken> tokensFromReader = new List<JsonToken>();
             while (jsonReader.Read())
             {
                 switch (jsonReader.CurrentTokenType)
@@ -185,34 +295,34 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
                     case JsonTokenType.NotStarted:
                         throw new ArgumentException(string.Format("Got an unexpected JsonTokenType: {0} as an expected token type", jsonReader.CurrentTokenType));
                     case JsonTokenType.BeginArray:
-                        tokensFromReader.Add(JsonTokenInfo.ArrayStart());
+                        tokensFromReader.Add(JsonToken.ArrayStart());
                         break;
                     case JsonTokenType.EndArray:
-                        tokensFromReader.Add(JsonTokenInfo.ArrayEnd());
+                        tokensFromReader.Add(JsonToken.ArrayEnd());
                         break;
                     case JsonTokenType.BeginObject:
-                        tokensFromReader.Add(JsonTokenInfo.ObjectStart());
+                        tokensFromReader.Add(JsonToken.ObjectStart());
                         break;
                     case JsonTokenType.EndObject:
-                        tokensFromReader.Add(JsonTokenInfo.ObjectEnd());
+                        tokensFromReader.Add(JsonToken.ObjectEnd());
                         break;
                     case JsonTokenType.String:
-                        tokensFromReader.Add(JsonTokenInfo.String(jsonReader.GetStringValue()));
+                        tokensFromReader.Add(JsonToken.String(jsonReader.GetStringValue()));
                         break;
                     case JsonTokenType.Number:
-                        tokensFromReader.Add(JsonTokenInfo.Number(jsonReader.GetNumberValue()));
+                        tokensFromReader.Add(JsonToken.Number(jsonReader.GetNumberValue()));
                         break;
                     case JsonTokenType.True:
-                        tokensFromReader.Add(JsonTokenInfo.Boolean(true));
+                        tokensFromReader.Add(JsonToken.Boolean(true));
                         break;
                     case JsonTokenType.False:
-                        tokensFromReader.Add(JsonTokenInfo.Boolean(false));
+                        tokensFromReader.Add(JsonToken.Boolean(false));
                         break;
                     case JsonTokenType.Null:
-                        tokensFromReader.Add(JsonTokenInfo.Null());
+                        tokensFromReader.Add(JsonToken.Null());
                         break;
                     case JsonTokenType.FieldName:
-                        tokensFromReader.Add(JsonTokenInfo.FieldName(jsonReader.GetStringValue()));
+                        tokensFromReader.Add(JsonToken.FieldName(jsonReader.GetStringValue()));
                         break;
                     default:
                         break;
@@ -222,7 +332,7 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
             return tokensFromReader.ToArray();
         }
 
-        public static byte[] ConvertTextToBinary(string text)
+        public static ReadOnlyMemory<byte> ConvertTextToBinary(string text)
         {
             IJsonWriter binaryWriter = JsonWriter.Create(JsonSerializationFormat.Binary);
             IJsonReader textReader = JsonReader.Create(Encoding.UTF8.GetBytes(text));
@@ -235,7 +345,7 @@ namespace Microsoft.Azure.Cosmos.NetFramework.Tests.Json
             IJsonReader binaryReader = JsonReader.Create(binary);
             IJsonWriter textWriter = JsonWriter.Create(JsonSerializationFormat.Text);
             textWriter.WriteAll(binaryReader);
-            return Encoding.UTF8.GetString(textWriter.GetResult());
+            return Encoding.UTF8.GetString(textWriter.GetResult().ToArray());
         }
 
         public static void PrintStatisticsTable(string inputFileName, JsonExecutionTimes text, JsonExecutionTimes newtonsoft, JsonExecutionTimes binary)

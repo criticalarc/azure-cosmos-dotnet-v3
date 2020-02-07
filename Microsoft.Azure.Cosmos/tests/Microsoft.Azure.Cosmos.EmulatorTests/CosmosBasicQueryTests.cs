@@ -5,15 +5,14 @@
 namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
 {
     using System;
-    using System.Collections;
     using System.Collections.Generic;
-    using System.Collections.ObjectModel;
     using System.IO;
     using System.Linq;
     using System.Net;
     using System.Threading.Tasks;
     using Cosmos.Scripts;
     using Microsoft.Azure.Cosmos.Linq;
+    using Microsoft.Azure.Cosmos.Query.Core;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using Newtonsoft.Json;
 
@@ -170,7 +169,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
 
             if (queryResults.Count < 3)
             {
-                foreach(string id in createdIds)
+                foreach (string id in createdIds)
                 {
                     dynamic item = new
                     {
@@ -203,15 +202,15 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             CollectionAssert.IsSubsetOf(createdIds, ids);
 
             //Read All with partition key
-             results = await this.ToListAsync(
-                container.GetItemQueryStreamIterator,
-                container.GetItemQueryIterator<dynamic>,
-                null,
-                new QueryRequestOptions()
-                {
-                    MaxItemCount = 1,
-                    PartitionKey = new PartitionKey("BasicQueryItem")
-                });
+            results = await this.ToListAsync(
+               container.GetItemQueryStreamIterator,
+               container.GetItemQueryIterator<dynamic>,
+               null,
+               new QueryRequestOptions()
+               {
+                   MaxItemCount = 1,
+                   PartitionKey = new PartitionKey("BasicQueryItem")
+               });
 
             Assert.AreEqual(1, results.Count);
 
@@ -267,9 +266,9 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
                 "select * from T where STARTSWITH(T.id, \"BasicQuerySp\")",
                 CosmosBasicQueryTests.RequestOptions);
 
-            if(queryResults.Count < 3)
+            if (queryResults.Count < 3)
             {
-                foreach(string id in createdIds)
+                foreach (string id in createdIds)
                 {
                     StoredProcedureProperties properties = await scripts.CreateStoredProcedureAsync(new StoredProcedureProperties()
                     {
@@ -407,7 +406,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
         public async Task UserTests(bool directMode)
         {
             CosmosClient client = directMode ? DirectCosmosClient : GatewayCosmosClient;
-            DatabaseCore database = (DatabaseCore) client.GetDatabase(DatabaseId);
+            DatabaseCore database = (DatabaseInlineCore)client.GetDatabase(DatabaseId);
             List<string> createdIds = new List<string>();
 
             try
@@ -466,7 +465,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             {
                 UserResponse createUserResponse = await database.CreateUserAsync(userId);
                 Assert.AreEqual(HttpStatusCode.Created, createUserResponse.StatusCode);
-                user = (UserCore) createUserResponse.User;
+                user = (UserInlineCore)createUserResponse.User;
 
                 ContainerResponse createContainerResponse = await database.CreateContainerIfNotExistsAsync(Guid.NewGuid().ToString(), partitionKeyPath: "/pk");
                 Container container = createContainerResponse.Container;
@@ -525,8 +524,8 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
         private delegate FeedIterator QueryStream(string querytext, string continuationToken, QueryRequestOptions options);
 
         private async Task<List<T>> ToListAsync<T>(
-            QueryStream createStreamQuery, 
-            Query<T> createQuery, 
+            QueryStream createStreamQuery,
+            Query<T> createQuery,
             string queryText,
             QueryRequestOptions requestOptions)
         {
@@ -541,7 +540,9 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
 
                 StreamReader sr = new StreamReader(response.Content);
                 string result = await sr.ReadToEndAsync();
-                ICollection<T> responseResults = JsonConvert.DeserializeObject<CosmosFeedResponseUtil<T>>(result).Data;
+                ICollection<T> responseResults;
+                responseResults = JsonConvert.DeserializeObject<CosmosFeedResponseUtil<T>>(result).Data;
+
                 Assert.IsTrue(responseResults.Count <= 1);
 
                 streamResults.AddRange(responseResults);
@@ -556,8 +557,8 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
                 response.EnsureSuccessStatusCode();
                 Assert.AreEqual(expectedStatus, response.StatusCode);
 
-                ICollection<T> responseResults = TestCommon.Serializer.FromStream<CosmosFeedResponseUtil<T>>(response.Content).Data;
-                Assert.IsTrue(responseResults.Count <= 1);
+                IEnumerable<T> responseResults = TestCommon.SerializerCore.FromStream<CosmosFeedResponseUtil<T>>(response.Content).Data;
+                Assert.IsTrue(responseResults.Count() <= 1);
 
                 pagedStreamResults.AddRange(responseResults);
                 continuationToken = response.Headers.ContinuationToken;
@@ -614,5 +615,77 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
 
             return results;
         }
+
+        public const string DatabaseName = "testcosmosclient";
+        public const int Throughput = 1200;
+        public const string DefaultKey = "objectKey";
+        public const string TestCollection = "testcollection";
+        private static readonly Random Random = new Random();
+
+        [TestMethod]
+        public async Task InvalidRangesOnQuery()
+        {
+            CosmosClient cosmosClient = DirectCosmosClient;
+
+            DatabaseResponse databaseResponse = await cosmosClient.CreateDatabaseIfNotExistsAsync(DatabaseName, Throughput);
+            Database database = databaseResponse.Database;
+
+            Container container = await database.DefineContainer(TestCollection, $"/{DefaultKey}")
+                .WithUniqueKey().Path($"/{DefaultKey}").Attach().CreateIfNotExistsAsync();
+
+            List<string> queryKeys = new List<string>();
+
+            List<TestCollectionObject> testCollectionObjects = JsonConvert.DeserializeObject<List<TestCollectionObject>>(
+                "[{\"id\":\"70627503-7cb2-4a79-bcec-5e55765aa080\",\"objectKey\":\"message~phone~u058da564bfaa66cb031606db664dbfda~phone~ud75ce020af5f8bfb75a9097a66d452f2~Chat~20190927000042Z\",\"text\":null,\"text2\":null},{\"id\":\"507079b7-a5be-4da4-9158-16fc961cd474\",\"objectKey\":\"message~phone~u058da564bfaa66cb031606db664dbfda~phone~ud75ce020af5f8bfb75a9097a66d452f2~Chat~20190927125742Z\",\"text\":null,\"text2\":null}]");
+            foreach (TestCollectionObject testCollectionObject in testCollectionObjects)
+            {
+                await WriteDocument(container, testCollectionObject);
+                queryKeys.Add(testCollectionObject.ObjectKey);
+            }
+
+            List<TestCollectionObject> results = container
+                .GetItemLinqQueryable<TestCollectionObject>(true, requestOptions: RunInParallelOptions())
+                .Where(r => queryKeys.Contains(r.ObjectKey))
+                .ToList(); // ERROR OCCURS WHEN QUERY IS EXECUTED
+
+            Console.WriteLine($"[\"{string.Join("\", \n\"", results.Select(r => r.ObjectKey))}\"]");
+        }
+
+        private static async Task WriteDocument(Container container, TestCollectionObject testData)
+        {
+            try
+            {
+                await container.CreateItemAsync(testData, requestOptions: null);
+            }
+            catch (CosmosException e)
+            {
+                if (e.StatusCode != HttpStatusCode.Conflict)
+                {
+                    throw;
+                }
+            }
+        }
+
+        private static QueryRequestOptions RunInParallelOptions()
+        {
+            return new QueryRequestOptions
+            {
+                MaxItemCount = -1,
+                MaxBufferedItemCount = -1,
+                MaxConcurrency = -1
+            };
+        }
+    }
+
+    public class TestCollectionObject
+    {
+        [JsonProperty("id")]
+        public Guid Id { get; set; }
+        [JsonProperty(CosmosBasicQueryTests.DefaultKey)]
+        public string ObjectKey { get; set; }
+        [JsonProperty("text")]
+        public string Text { get; set; }
+        [JsonProperty("text2")]
+        public string Text2 { get; set; }
     }
 }

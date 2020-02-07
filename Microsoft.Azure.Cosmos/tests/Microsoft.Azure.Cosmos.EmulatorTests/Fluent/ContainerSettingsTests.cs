@@ -117,8 +117,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             Assert.AreEqual(1, responseProperties.IndexingPolicy.SpatialIndexes.Count);
             SpatialPath spatialPath = responseProperties.IndexingPolicy.SpatialIndexes.First();
             Assert.AreEqual("/address/spatial/*", spatialPath.Path);
-            Assert.AreEqual(1, spatialPath.SpatialTypes.Count);
-            Assert.AreEqual(SpatialType.LineString, spatialPath.SpatialTypes.First());
+            Assert.AreEqual(4, spatialPath.SpatialTypes.Count); // All SpatialTypes are returned
         }
 
         [TestMethod]
@@ -185,6 +184,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             // Verify v3 can add composite indexes and update the container
             Container container = this.database.GetContainer(containerName);
             ContainerProperties containerProperties = await container.ReadContainerAsync();
+            Assert.IsNotNull(containerProperties.SelfLink);
             string cPath0 = "/address/city";
             string cPath1 = "/address/state";
             containerProperties.IndexingPolicy.CompositeIndexes.Add(new Collection<CompositePath>()

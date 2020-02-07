@@ -42,6 +42,7 @@ namespace Microsoft.Azure.Cosmos
             this.PartitionKeyRangeId = options.PartitionKeyRangeId;
             this.PopulateQueryMetrics = options.PopulateQueryMetrics;
             this.ResponseContinuationTokenLimitInKb = options.ResponseContinuationTokenLimitInKb;
+            this.DisableRUPerMinuteUsage = options.DisableRUPerMinuteUsage;
 
             if (options.PartitionKey == null)
             {
@@ -314,6 +315,16 @@ namespace Microsoft.Azure.Cosmos
         public int? ResponseContinuationTokenLimitInKb { get; set; }
 
         /// <summary>
+        /// Gets or sets the <see cref="DisableRUPerMinuteUsage"/> option for the current query in the Azure Cosmos DB service.
+        /// </summary>
+        /// <remarks>
+        /// <para> 
+        /// DisableRUPerMinuteUsage is used to enable/disable Request Units(RUs)/minute capacity to serve the query if regular provisioned RUs/second is exhausted.
+        /// </para>
+        /// </remarks>
+        public bool DisableRUPerMinuteUsage { get; set; }
+
+        /// <summary>
         /// Gets or sets the <see cref="JsonSerializerSettings"/> for the current request used to deserialize the document.
         /// If null, uses the default serializer settings set up in the DocumentClient.
         /// </summary>
@@ -405,7 +416,7 @@ namespace Microsoft.Azure.Cosmos
         /// <summary>
         /// Gets or sets the custom serialization options for query
         /// </summary>
-        internal CosmosSerializationFormatOptions CosmosSerializationOptions { get; set; }
+        internal CosmosSerializationFormatOptions CosmosSerializationFormatOptions { get; set; }
 
         internal IDictionary<string, object> Properties { get; set; }
     }

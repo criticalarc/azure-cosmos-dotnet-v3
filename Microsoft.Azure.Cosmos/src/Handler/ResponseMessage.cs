@@ -21,6 +21,7 @@ namespace Microsoft.Azure.Cosmos
         public ResponseMessage()
         {
             this.Headers = new Headers();
+            this.DiagnosticsContext = CosmosDiagnosticsContext.Create();
         }
 
         /// <summary>
@@ -43,6 +44,7 @@ namespace Microsoft.Azure.Cosmos
             this.RequestMessage = requestMessage;
             this.ErrorMessage = errorMessage;
             this.Headers = new Headers();
+            this.DiagnosticsContext = requestMessage?.DiagnosticsContext ?? CosmosDiagnosticsContext.Create();
         }
 
         /// <summary>
@@ -53,18 +55,21 @@ namespace Microsoft.Azure.Cosmos
         /// <param name="errorMessage">The reason for failures if any.</param>
         /// <param name="error">The inner error object</param>
         /// <param name="headers">The headers for the response.</param>
+        /// <param name="diagnostics">The diagnostics for the request</param>
         internal ResponseMessage(
             HttpStatusCode statusCode,
             RequestMessage requestMessage,
             string errorMessage,
             Error error,
-            Headers headers)
+            Headers headers,
+            CosmosDiagnosticsContext diagnostics)
         {
             this.StatusCode = statusCode;
             this.RequestMessage = requestMessage;
             this.ErrorMessage = errorMessage;
             this.Error = error;
-            this.Headers = headers;
+            this.Headers = headers ?? new Headers();
+            this.DiagnosticsContext = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         }
 
         /// <summary>
@@ -111,7 +116,9 @@ namespace Microsoft.Azure.Cosmos
         /// <summary>
         /// Gets the cosmos diagnostic information for the current request to Azure Cosmos DB service
         /// </summary>
-        public CosmosDiagnostics Diagnostics { get; set; }
+        public virtual CosmosDiagnostics Diagnostics => this.DiagnosticsContext;
+
+        internal CosmosDiagnosticsContext DiagnosticsContext { get; }
 
         /// <summary>
         /// Gets the internal error object.
@@ -136,6 +143,7 @@ namespace Microsoft.Azure.Cosmos
         {
             if (!this.IsSuccessStatusCode)
             {
+                this.EnsureErrorMessage();
                 string message = $"Response status code does not indicate success: {(int)this.StatusCode} Substatus: {(int)this.Headers.SubStatusCode} Reason: ({this.ErrorMessage}).";
 
                 throw new CosmosException(
@@ -200,6 +208,45 @@ namespace Microsoft.Azure.Cosmos
             if (this.disposed)
             {
                 throw new ObjectDisposedException(this.GetType().ToString());
+            }
+        }
+
+        private void EnsureErrorMessage()
+        {
+            if (this.Error != null
+                || !string.IsNullOrEmpty(this.ErrorMessage))
+            {
+                return;
+            }
+
+            if (this.content != null
+                && this.content.CanRead)
+            {
+                try
+                {
+                    Error error = Documents.Resource.LoadFrom<Error>(this.content);
+                    if (error != null)
+                    {
+                        // Error format is not consistent across modes
+                        if (!string.IsNullOrEmpty(error.Message))
+                        {
+                            this.ErrorMessage = error.Message;
+                        }
+                        else
+                        {
+                            this.ErrorMessage = error.ToString();
+                        }
+                    }
+                }
+                catch (Newtonsoft.Json.JsonReaderException)
+                {
+                    // Content is not Json
+                    this.content.Position = 0;
+                    using (StreamReader streamReader = new StreamReader(this.content))
+                    {
+                        this.ErrorMessage = streamReader.ReadToEnd();
+                    }
+                }
             }
         }
     }

@@ -63,7 +63,7 @@ namespace Microsoft.Azure.Cosmos.Linq
 
             if (cosmosSerializationOptions != null)
             {
-                memberName = cosmosSerializationOptions.GetStrWithPropertyNamingPolicy(memberName);
+                memberName = CosmosSerializationUtil.GetStringWithPropertyNamingPolicy(cosmosSerializationOptions, memberName);
             }
 
             return memberName;

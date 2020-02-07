@@ -7,8 +7,11 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
     using System;
     using System.IO;
     using System.Net;
+    using System.Net.Http;
     using System.Threading.Tasks;
+    using Microsoft.Azure.Cosmos.Query.Core;
     using Microsoft.Azure.Cosmos.Services.Management.Tests.LinqProviderTests;
+    using Microsoft.Azure.Cosmos.Utils;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Client;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -111,7 +114,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
                 }
                 catch (Exception ex)
                 {
-                    var innerException = ex as DocumentClientException;
+                    DocumentClientException innerException = ex as DocumentClientException;
                     Assert.AreEqual(HttpStatusCode.PreconditionFailed, innerException.StatusCode, "Invalid status code");
                 }
             }
@@ -252,6 +255,52 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
                     "]" +
                 "}");
         }
+
+        [TestMethod]
+        public async Task VerifyNegativeWebProxySettings()
+        {
+            //proxy will be bypassed if the endpoint is localhost or 127.0.0.1
+            string endpoint = $"https://{Environment.MachineName}";
+
+            IWebProxy proxy = new WebProxy
+            {
+                Address = new Uri("http://www.cosmostestproxyshouldfail.com"),
+                BypassProxyOnLocal = false,
+                BypassList = new string[] { },
+            };
+
+            CosmosClient cosmosClient = new CosmosClient(
+                endpoint,
+                ConfigurationManager.AppSettings["MasterKey"],
+                new CosmosClientOptions
+                {
+                    ConnectionMode = ConnectionMode.Gateway,
+                    ConnectionProtocol = Protocol.Https,
+                    WebProxy = proxy
+                }
+            );
+
+            await Assert.ThrowsExceptionAsync<HttpRequestException>(async () => {
+                DatabaseResponse databaseResponse = await cosmosClient.CreateDatabaseAsync(Guid.NewGuid().ToString());
+            });
+
+            proxy = new TestWebProxy { Credentials = new NetworkCredential("test", "test") };
+
+            cosmosClient = new CosmosClient(
+                endpoint,
+                ConfigurationManager.AppSettings["MasterKey"],
+                new CosmosClientOptions
+                {
+                    ConnectionMode = ConnectionMode.Gateway,
+                    ConnectionProtocol = Protocol.Https,
+                    WebProxy = proxy
+                }
+            );
+
+            await Assert.ThrowsExceptionAsync<HttpRequestException>(async () => {
+                DatabaseResponse databaseResponse = await cosmosClient.CreateDatabaseAsync(Guid.NewGuid().ToString());
+            });
+        }
     }
 
     internal static class StringHelper
@@ -259,6 +308,21 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
         internal static string EscapeForSQL(this string input)
         {
             return input.Replace("'", "\\'").Replace("\"", "\\\"");
+        }
+    }
+
+    internal class TestWebProxy : IWebProxy
+    {
+        public ICredentials Credentials { get; set; }
+
+        public Uri GetProxy(Uri destination)
+        {
+            return new Uri("http://www.cosmostestproxyshouldfail.com");
+        }
+
+        public bool IsBypassed(Uri host)
+        {
+            return false;
         }
     }
 }

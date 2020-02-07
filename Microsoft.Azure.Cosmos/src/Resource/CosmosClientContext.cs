@@ -5,7 +5,9 @@
 namespace Microsoft.Azure.Cosmos
 {
     using System;
+    using System.Globalization;
     using System.IO;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Handlers;
@@ -25,19 +27,15 @@ namespace Microsoft.Azure.Cosmos
 
         internal abstract DocumentClient DocumentClient { get; }
 
-        internal abstract IDocumentQueryClient DocumentQueryClient { get; }
-
-        internal abstract CosmosSerializer CosmosSerializer { get; }
-
-        internal abstract CosmosSerializer PropertiesSerializer { get; }
-
-        internal abstract CosmosSerializer SqlQuerySpecSerializer { get; }
+        internal abstract CosmosSerializerCore SerializerCore { get; }
 
         internal abstract CosmosResponseFactory ResponseFactory { get; }
 
         internal abstract RequestInvokerHandler RequestHandler { get; }
 
         internal abstract CosmosClientOptions ClientOptions { get; }
+
+        internal abstract string UserAgent { get; }
 
         /// <summary>
         /// Generates the URI link for the resource
@@ -53,6 +51,27 @@ namespace Microsoft.Azure.Cosmos
 
         internal abstract void ValidateResource(string id);
 
+        internal abstract Task<ContainerProperties> GetCachedContainerPropertiesAsync(
+            string containerUri,
+            CancellationToken cancellationToken = default(CancellationToken));
+
+        /// <summary>
+        /// This is a wrapper around ExecUtil method. This allows the calls to be mocked so logic done 
+        /// in a resource can be unit tested.
+        /// </summary>
+        internal abstract Task<ResponseMessage> ProcessResourceOperationStreamAsync(
+            Uri resourceUri,
+            ResourceType resourceType,
+            OperationType operationType,
+            RequestOptions requestOptions,
+            ContainerCore cosmosContainerCore,
+            PartitionKey? partitionKey,
+            string itemId,
+            Stream streamPayload,
+            Action<RequestMessage> requestEnricher,
+            CosmosDiagnosticsContext diagnosticsScope,
+            CancellationToken cancellationToken);
+
         /// <summary>
         /// This is a wrapper around ExecUtil method. This allows the calls to be mocked so logic done 
         /// in a resource can be unit tested.
@@ -66,6 +85,7 @@ namespace Microsoft.Azure.Cosmos
             PartitionKey? partitionKey,
             Stream streamPayload,
             Action<RequestMessage> requestEnricher,
+            CosmosDiagnosticsContext diagnosticsScope,
             CancellationToken cancellationToken);
 
         /// <summary>
@@ -82,6 +102,7 @@ namespace Microsoft.Azure.Cosmos
            Stream streamPayload,
            Action<RequestMessage> requestEnricher,
            Func<ResponseMessage, T> responseCreator,
+           CosmosDiagnosticsContext diagnosticsScope,
            CancellationToken cancellationToken);
     }
 }

@@ -6,6 +6,8 @@ namespace Microsoft.Azure.Cosmos.Tests
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Common;
@@ -14,6 +16,32 @@ namespace Microsoft.Azure.Cosmos.Tests
     [TestClass]
     public class AsyncCacheTest
     {
+        [TestMethod]
+        [Owner("flnarenj")]
+        public async Task TestConcurrentGetAsync()
+        {
+            const string key = "a";
+            const string value = "b";
+
+            AsyncCache<string, string> cache = new AsyncCache<string, string>();
+
+            int hitCount = 0;
+            await Enumerable.Range(0, 10).ForEachAsync(
+               10,
+               _ => cache.GetAsync(
+                   key,
+                   null,
+                   () =>
+                   {
+                       // No Interlocked, would force barriers
+                       hitCount++;
+                       return Task.FromResult(value);
+                   },
+                   CancellationToken.None));
+
+            Assert.AreEqual(1, hitCount);
+        }
+
         [TestMethod]
         public async Task TestGetAsync()
         {
@@ -237,6 +265,26 @@ namespace Microsoft.Azure.Cosmos.Tests
             // task 2 should not fail because task 1 got cancelled.
             int getTaskResult2 = await getTask2;
             Assert.AreEqual(2, getTaskResult2);
+        }
+
+        [TestMethod]
+        [Timeout(60000)]
+        public async Task TestAsyncDeadlock()
+        {
+            AsyncCache<int, int> cache = new AsyncCache<int, int>();
+            Stopwatch stopwatch = new Stopwatch();
+
+            stopwatch.Start();
+            await Task.Factory.StartNew(() =>
+            {
+                stopwatch.Stop();
+                Logger.LogLine($"TestAsyncDeadlock Factory started in {stopwatch.ElapsedMilliseconds} ms");
+                cache.Set(0, 42);
+            },
+            CancellationToken.None,
+            TaskCreationOptions.None,
+            new SingleTaskScheduler()
+            );
         }
 
         private int GenerateIntFuncThatThrows()

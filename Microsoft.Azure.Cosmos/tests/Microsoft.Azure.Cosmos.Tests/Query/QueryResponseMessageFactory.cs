@@ -5,26 +5,23 @@
 namespace Microsoft.Azure.Cosmos.Tests
 {
     using System;
-    using System.Collections;
     using System.Collections.Generic;
-    using System.Collections.ObjectModel;
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Threading;
-    using System.Threading.Tasks;
+    using System.Net.Http;
     using Microsoft.Azure.Cosmos.CosmosElements;
+    using Microsoft.Azure.Cosmos.Diagnostics;
     using Microsoft.Azure.Cosmos.Json;
-    using Microsoft.Azure.Cosmos.Query;
+    using Microsoft.Azure.Cosmos.Query.Core.Metrics;
+    using Microsoft.Azure.Cosmos.Query.Core.QueryClient;
     using Microsoft.Azure.Documents;
-    using Moq;
 
     internal static class QueryResponseMessageFactory
     {
-        private static readonly CosmosSerializer cosmosSerializer = new CosmosJsonDotNetSerializer();
         public const int SPLIT = -1;
 
-        public static (QueryResponse queryResponse, IList<ToDoItem> items) Create(
+        public static (QueryResponseCore queryResponse, IList<ToDoItem> items) Create(
             string itemIdPrefix,
             string continuationToken,
             string collectionRid,
@@ -37,27 +34,49 @@ namespace Microsoft.Azure.Cosmos.Tests
             }
 
             IList<ToDoItem> items = ToDoItem.CreateItems(itemCount, itemIdPrefix);
-            MemoryStream memoryStream = (MemoryStream)cosmosSerializer.ToStream<IList<ToDoItem>>(items);
+            MemoryStream memoryStream = (MemoryStream)MockCosmosUtil.Serializer.ToStream<IList<ToDoItem>>(items);
             long responseLengthBytes = memoryStream.Length;
 
             IJsonNavigator jsonNavigator = JsonNavigator.Create(memoryStream.ToArray());
             IJsonNavigatorNode jsonNavigatorNode = jsonNavigator.GetRootNode();
             CosmosArray cosmosArray = CosmosArray.Create(jsonNavigator, jsonNavigatorNode);
 
-            Headers headers = new Headers();
-            headers.ContinuationToken = continuationToken;
-            headers.ActivityId = Guid.NewGuid().ToString();
+            double requestCharge = 42;
+            string activityId = Guid.NewGuid().ToString();
+            CosmosDiagnosticsContext diagnosticsContext = CosmosDiagnosticsContext.Create();
+            diagnosticsContext.AddDiagnosticsInternal(new PointOperationStatistics(
+                activityId: Guid.NewGuid().ToString(),
+                statusCode: HttpStatusCode.OK,
+                subStatusCode: SubStatusCodes.Unknown,
+                requestCharge: requestCharge,
+                errorMessage: null,
+                method: HttpMethod.Post,
+                requestUri: new Uri("http://localhost.com"),
+                requestSessionToken: null,
+                responseSessionToken: null,
+                clientSideRequestStatistics: null));
+            IReadOnlyCollection<QueryPageDiagnostics> diagnostics = new List<QueryPageDiagnostics>()
+            {
+                new QueryPageDiagnostics("0",
+                "SomeQueryMetricText",
+                "SomeIndexUtilText",
+                diagnosticsContext,
+                new SchedulingStopwatch())
+            };
 
-            QueryResponse message = QueryResponse.CreateSuccess(
+            QueryResponseCore message = QueryResponseCore.CreateSuccess(
                     result: cosmosArray,
-                    count: itemCount,
-                    responseHeaders: CosmosQueryResponseMessageHeaders.ConvertToQueryHeaders(headers, ResourceType.Document, collectionRid),
+                    continuationToken: continuationToken,
+                    disallowContinuationTokenMessage: null,
+                    activityId: activityId,
+                    requestCharge: requestCharge,
+                    diagnostics: diagnostics,
                     responseLengthBytes: responseLengthBytes);
 
             return (message, items);
         }
 
-        public static QueryResponse CreateQueryResponse(
+        public static QueryResponseCore CreateQueryResponse(
             IList<ToDoItem> items,
             bool isOrderByQuery,
             string continuationToken,
@@ -75,7 +94,7 @@ namespace Microsoft.Azure.Cosmos.Tests
             }
             else
             {
-                memoryStream = (MemoryStream)cosmosSerializer.ToStream<IList<ToDoItem>>(items);
+                memoryStream = (MemoryStream)MockCosmosUtil.Serializer.ToStream<IList<ToDoItem>>(items);
             }
 
             long responseLengthBytes = memoryStream.Length;
@@ -83,34 +102,97 @@ namespace Microsoft.Azure.Cosmos.Tests
             IJsonNavigator jsonNavigator = JsonNavigator.Create(memoryStream.ToArray());
             IJsonNavigatorNode jsonNavigatorNode = jsonNavigator.GetRootNode();
             CosmosArray cosmosArray = CosmosArray.Create(jsonNavigator, jsonNavigatorNode);
+            CosmosDiagnosticsContext diagnosticsContext = CosmosDiagnosticsContext.Create();
+            diagnosticsContext.AddDiagnosticsInternal(new PointOperationStatistics(
+                activityId: Guid.NewGuid().ToString(),
+                statusCode: HttpStatusCode.OK,
+                subStatusCode: SubStatusCodes.Unknown,
+                requestCharge: 4,
+                errorMessage: null,
+                method: HttpMethod.Post,
+                requestUri: new Uri("http://localhost.com"),
+                requestSessionToken: null,
+                responseSessionToken: null,
+                clientSideRequestStatistics: null));
+            IReadOnlyCollection<QueryPageDiagnostics> diagnostics = new List<QueryPageDiagnostics>()
+            {
+                new QueryPageDiagnostics("0",
+                "SomeQueryMetricText",
+                "SomeIndexUtilText",
+                diagnosticsContext,
+                new SchedulingStopwatch())
+            };
 
-            Headers headers = new Headers();
-            headers.ContinuationToken = continuationToken;
-            headers.ActivityId = Guid.NewGuid().ToString();
-
-            QueryResponse message = QueryResponse.CreateSuccess(
+            QueryResponseCore message = QueryResponseCore.CreateSuccess(
                     result: cosmosArray,
-                    count: items.Count,
-                    responseHeaders: CosmosQueryResponseMessageHeaders.ConvertToQueryHeaders(headers, ResourceType.Document, collectionRid),
-                    responseLengthBytes: responseLengthBytes);
+                    requestCharge: 4,
+                    activityId: Guid.NewGuid().ToString(),
+                    diagnostics: diagnostics,
+                    responseLengthBytes: responseLengthBytes,
+                    disallowContinuationTokenMessage: null,
+                    continuationToken: continuationToken);
 
             return message;
         }
 
-        public static QueryResponse CreateSplitResponse(string collectionRid)
+        public static QueryResponse<TItem> CreateQueryResponse<TItem>(
+            QueryResponse queryResponse)
         {
-            QueryResponse splitResponse = QueryResponse.CreateFailure(
-               new CosmosQueryResponseMessageHeaders(null, null, ResourceType.Document, collectionRid)
-               {
-                   SubStatusCode = SubStatusCodes.PartitionKeyRangeGone,
-                   ActivityId = Guid.NewGuid().ToString()
-               },
-               HttpStatusCode.Gone,
-               null,
-               "Partition split error",
-               null);
+            return QueryResponse<TItem>.CreateResponse<TItem>(queryResponse, MockCosmosUtil.Serializer);
+        }
+
+        public static QueryResponseCore CreateFailureResponse(
+            HttpStatusCode httpStatusCode,
+            SubStatusCodes subStatusCodes,
+            string errorMessage)
+        {
+            CosmosDiagnosticsContext diagnosticsContext = CosmosDiagnosticsContext.Create();
+            diagnosticsContext.AddDiagnosticsInternal(new PointOperationStatistics(
+                Guid.NewGuid().ToString(),
+                System.Net.HttpStatusCode.Gone,
+                subStatusCode: SubStatusCodes.PartitionKeyRangeGone,
+                requestCharge: 10.4,
+                errorMessage: null,
+                method: HttpMethod.Post,
+                requestUri: new Uri("http://localhost.com"),
+                requestSessionToken: null,
+                responseSessionToken: null,
+                clientSideRequestStatistics: null));
+            IReadOnlyCollection<QueryPageDiagnostics> diagnostics = new List<QueryPageDiagnostics>()
+            {
+                new QueryPageDiagnostics("0",
+                "SomeQueryMetricText",
+                "SomeIndexUtilText",
+                diagnosticsContext,
+                new SchedulingStopwatch())
+            };
+
+            QueryResponseCore splitResponse = QueryResponseCore.CreateFailure(
+               statusCode: httpStatusCode,
+               subStatusCodes: subStatusCodes,
+               errorMessage: errorMessage,
+               requestCharge: 10.4,
+               activityId: Guid.NewGuid().ToString(),
+               diagnostics: diagnostics);
 
             return splitResponse;
+        }
+
+        public static QueryResponseCore CreateFailureToManyRequestResponse()
+        {
+            // 429 do not have an error message
+            return CreateFailureResponse(
+                (HttpStatusCode)429,
+                SubStatusCodes.Unknown,
+                null);
+        }
+
+        public static QueryResponseCore CreateSplitResponse(string collectionRid)
+        {
+            return CreateFailureResponse(
+                HttpStatusCode.Gone,
+                SubStatusCodes.PartitionKeyRangeGone,
+                "Partition split error");
         }
 
         private static MemoryStream SerializeForOrderByQuery(IList<ToDoItem> items)
@@ -122,7 +204,7 @@ namespace Microsoft.Azure.Cosmos.Tests
                 orderByItems = new OrderbyItems[] { new OrderbyItems(item.id) }
             }).ToArray();
 
-            return (MemoryStream)cosmosSerializer.ToStream<OrderByReturnStructure[]>(payload);
+            return (MemoryStream)MockCosmosUtil.Serializer.ToStream<OrderByReturnStructure[]>(payload);
         }
 
         private class OrderByReturnStructure

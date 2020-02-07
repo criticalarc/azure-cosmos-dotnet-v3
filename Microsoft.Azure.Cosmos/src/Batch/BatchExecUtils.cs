@@ -20,25 +20,17 @@ namespace Microsoft.Azure.Cosmos
         private const int BufferSize = 81920;
 
         /// <summary>
-        /// Converts a Stream to a Memory{byte} wrapping a byte array honoring a provided maximum length for the returned Memory.
+        /// Converts a Stream to a Memory{byte} wrapping a byte array.
         /// </summary>
         /// <param name="stream">Stream to be converted to bytes.</param>
-        /// <param name="maximumLength">Desired maximum length of the Memory{byte}.</param>
         /// <param name="cancellationToken"><see cref="CancellationToken"/> to cancel the operation.</param>
-        /// <returns>A Memory{byte} with length at most maximumLength.</returns>
-        /// <remarks>Throws RequestEntityTooLargeException if the input stream has more bytes than maximumLength.</remarks>
+        /// <returns>A Memory{byte}.</returns>
         public static async Task<Memory<byte>> StreamToMemoryAsync(
             Stream stream,
-            int maximumLength,
             CancellationToken cancellationToken)
         {
             if (stream.CanSeek)
             {
-                if (stream.Length > maximumLength)
-                {
-                    throw new RequestEntityTooLargeException(RMResources.RequestTooLarge);
-                }
-
                 // Some derived implementations of MemoryStream (such as versions of RecyclableMemoryStream prior to 1.2.2 that we may be using)
                 // return an incorrect response from TryGetBuffer. Use TryGetBuffer only on the MemoryStream type and not derived types.
                 MemoryStream memStream = stream as MemoryStream;
@@ -71,10 +63,6 @@ namespace Microsoft.Azure.Cosmos
                     while ((count = await stream.ReadAsync(buffer, 0, bufferSize, cancellationToken)) > 0)
                     {
                         sum += count;
-                        if (sum > maximumLength)
-                        {
-                            throw new RequestEntityTooLargeException(RMResources.RequestTooLarge);
-                        }
 
 #pragma warning disable VSTHRD103 // Call async methods when in an async method
                         memoryStream.Write(buffer, 0, count);
@@ -88,19 +76,25 @@ namespace Microsoft.Azure.Cosmos
 
         public static void EnsureValid(
             IReadOnlyList<ItemBatchOperation> operations,
-            RequestOptions batchOptions,
-            int? maxOperationCount = null)
+            RequestOptions batchOptions)
+        {
+            string errorMessage = BatchExecUtils.IsValid(operations, batchOptions);
+
+            if (errorMessage != null)
+            {
+                throw new ArgumentException(errorMessage);
+            }
+        }
+
+        internal static string IsValid(
+            IReadOnlyList<ItemBatchOperation> operations,
+            RequestOptions batchOptions)
         {
             string errorMessage = null;
 
             if (operations.Count == 0)
             {
                 errorMessage = ClientResources.BatchNoOperations;
-            }
-
-            if (maxOperationCount.HasValue && operations.Count > maxOperationCount.Value)
-            {
-                errorMessage = ClientResources.BatchTooLarge;
             }
 
             if (errorMessage == null && batchOptions != null)
@@ -118,11 +112,13 @@ namespace Microsoft.Azure.Cosmos
                     if (operation.RequestOptions != null
                         && operation.RequestOptions.Properties != null
                         && (operation.RequestOptions.Properties.TryGetValue(WFConstants.BackendHeaders.EffectivePartitionKey, out object epkObj)
-                            | operation.RequestOptions.Properties.TryGetValue(WFConstants.BackendHeaders.EffectivePartitionKeyString, out object epkStrObj)))
+                            | operation.RequestOptions.Properties.TryGetValue(WFConstants.BackendHeaders.EffectivePartitionKeyString, out object epkStrObj)
+                            | operation.RequestOptions.Properties.TryGetValue(HttpConstants.HttpHeaders.PartitionKey, out object pkStrObj)))
                     {
                         byte[] epk = epkObj as byte[];
                         string epkStr = epkStrObj as string;
-                        if (epk == null || epkStr == null)
+                        string partitionKeyJsonString = pkStrObj as string;
+                        if ((epk == null && partitionKeyJsonString == null) || epkStr == null)
                         {
                             errorMessage = string.Format(
                                 ClientResources.EpkPropertiesPairingExpected,
@@ -130,7 +126,7 @@ namespace Microsoft.Azure.Cosmos
                                 WFConstants.BackendHeaders.EffectivePartitionKeyString);
                         }
 
-                        if (operation.PartitionKey != null)
+                        if (operation.PartitionKey != null && !operation.RequestOptions.IsEffectivePartitionKeyRouting)
                         {
                             errorMessage = ClientResources.PKAndEpkSetTogether;
                         }
@@ -138,10 +134,7 @@ namespace Microsoft.Azure.Cosmos
                 }
             }
 
-            if (errorMessage != null)
-            {
-                throw new ArgumentException(errorMessage);
-            }
+            return errorMessage;
         }
 
         public static string GetPartitionKeyRangeId(PartitionKey partitionKey, PartitionKeyDefinition partitionKeyDefinition, Routing.CollectionRoutingMap collectionRoutingMap)
