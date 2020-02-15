@@ -41,6 +41,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public abstract TResult Visit(SqlParameterRefScalarExpression scalarExpression);
         public abstract TResult Visit(SqlPropertyRefScalarExpression scalarExpression);
         public abstract TResult Visit(SqlSubqueryScalarExpression scalarExpression);
+        public abstract TResult Visit(SqlTagsMatchExpression scalarExpression);
         public abstract TResult Visit(SqlUnaryScalarExpression scalarExpression);
     }
 
