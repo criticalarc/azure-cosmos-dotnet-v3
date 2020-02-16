@@ -1,6 +1,7 @@
 ﻿//------------------------------------------------------------
 // Copyright (c) Microsoft Corporation.  All rights reserved.
 //------------------------------------------------------------
+
 namespace Microsoft.Azure.Cosmos.Sql
 {
     using System;
@@ -588,8 +589,9 @@ namespace Microsoft.Azure.Cosmos.Sql
         {
             int hashCode = SqlTagsMatchExpressionHashCode;
             hashCode = CombineHashes(hashCode, sqlTagsMatchExpression.TagsProperty.GetHashCode());
-            foreach (var tag in sqlTagsMatchExpression.Tags)
+            foreach (string tag in sqlTagsMatchExpression.Tags)
                 hashCode = CombineHashes(hashCode, tag.GetHashCode());
+            hashCode = CombineHashes(hashCode, sqlTagsMatchExpression.QueryOptions.GetHashCode());
             return hashCode;
         }
 
