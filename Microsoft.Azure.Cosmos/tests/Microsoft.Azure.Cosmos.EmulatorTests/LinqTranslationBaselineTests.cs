@@ -557,7 +557,7 @@ namespace Microsoft.Azure.Cosmos.Services.Management.Tests.LinqProviderTests
             List<string> constantList = new List<string>() { "one", "two", "three" };
             string[] constantArray = new string[] { "one", "two", "three" };
 
-            Func<bool, IQueryable<DataObject>> getQuery = this.CreateDataTestStringFunctions();            
+            Func<bool, IQueryable<DataObject>> getQuery = this.CreateDataTestStringFunctions();
 
             List<LinqTestInput> inputs = new List<LinqTestInput>();
             // Concat
@@ -727,7 +727,7 @@ namespace Microsoft.Azure.Cosmos.Services.Management.Tests.LinqProviderTests
             // get_item
             //inputs.Add(new LinqTestInput("get_item", b => getQuery(b).Select(doc => doc.EnumerableField[0])));
             // TagsMatch
-            inputs.Add(new LinqTestInput("TagsMatch", b => getQuery(b).Where(doc => Tags.Match(doc.TagsField, new [] { "ns:name=1" }, true))));
+            inputs.Add(new LinqTestInput("TagsMatch", b => getQuery(b).Where(doc => CosmosTags.Match(doc.TagsField, new [] { "ns:name=1" }, TagsQueryOptions.Default))));
             this.ExecuteTestSuite(inputs);
         }
 
@@ -788,7 +788,7 @@ namespace Microsoft.Azure.Cosmos.Services.Management.Tests.LinqProviderTests
         public void TestStringCompareTo()
         {
             IOrderedQueryable<DataObject> testQuery = testContainer.GetItemLinqQueryable<DataObject>(allowSynchronousQueryExecution : true);
-            
+
             const int Records = 100;
             const int MaxStringLength = 20;
             Func<Random, DataObject> createDataObj = (random) =>
