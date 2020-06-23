@@ -38,7 +38,8 @@
     <IncludeSource>false</IncludeSource>
     <RootNamespace>Microsoft.Azure.Cosmos</RootNamespace>
     <NoWarn>NU5125</NoWarn>
-    <PackageVersion>3.8.0.3-ca</PackageVersion>
+    <PackageVersion>3.8.0.7-ca</PackageVersion>
+    <IsPreview>true</IsPreview>
   </PropertyGroup>
 
   <ItemGroup>
@@ -127,7 +128,7 @@
     <DefineConstants Condition=" '$(IsNightly)' == 'true' or '$(IsPreview)' == 'true' ">$(DefineConstants);PREVIEW</DefineConstants>
     <DefineConstants Condition=" '$(SignAssembly)' == 'true' ">$(DefineConstants);SignAssembly</DefineConstants>
     <DefineConstants Condition=" '$(DelaySign)' == 'true' ">$(DefineConstants);DelaySignKeys</DefineConstants>
-    <DefineConstants>$(DefineConstants);DOCDBCLIENT;COSMOSCLIENT;NETSTANDARD20;PREVIEW</DefineConstants>
+    <DefineConstants>$(DefineConstants);DOCDBCLIENT;COSMOSCLIENT;NETSTANDARD20</DefineConstants>
     <LangVersion>8.0</LangVersion>
   </PropertyGroup>
 
