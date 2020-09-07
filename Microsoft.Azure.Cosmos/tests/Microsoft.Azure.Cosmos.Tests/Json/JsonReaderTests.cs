@@ -10,6 +10,9 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
     using System.Globalization;
     using System.Linq;
     using System.Text;
+    using Microsoft.Azure.Cosmos.Core.Utf8;
+    using Microsoft.Azure.Cosmos.CosmosElements;
+    using Microsoft.Azure.Cosmos.CosmosElements.Numbers;
     using Microsoft.Azure.Cosmos.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -585,9 +588,9 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
         public void SystemStringTest()
         {
             int systemStringId = 0;
-            while (JsonBinaryEncoding.TryGetSystemStringById(systemStringId, out string systemString))
+            while (JsonBinaryEncoding.TryGetSystemStringById(systemStringId, out UtfAllString systemString))
             {
-                string input = "\"" + systemString + "\"";
+                string input = "\"" + systemString.Utf16String + "\"";
                 byte[] binaryInput =
                 {
                     BinaryFormat,
@@ -596,7 +599,7 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
 
                 JsonToken[] expectedTokens =
                 {
-                    JsonToken.String(systemString)
+                    JsonToken.String(systemString.Utf16String)
                 };
 
                 this.VerifyReader(input, expectedTokens);
@@ -663,7 +666,7 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             for (int i = 0; i < OneByteCount + 1; i++)
             {
                 string userEncodedString = "a" + i.ToString();
-                Assert.IsTrue(jsonStringDictionary.TryAddString(Encoding.UTF8.GetBytes(userEncodedString).AsSpan(), out int index));
+                Assert.IsTrue(jsonStringDictionary.TryAddString(Utf8Span.TranscodeUtf16(userEncodedString), out int index));
                 Assert.AreEqual(i, index);
             }
 
@@ -1490,8 +1493,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             this.VerifyReader(input, expectedTokens);
             this.VerifyReader(binaryInput, expectedTokens);
             JsonStringDictionary jsonStringDictionary = new JsonStringDictionary(capacity: 100);
-            Assert.IsTrue(jsonStringDictionary.TryAddString(Encoding.UTF8.GetBytes("GlossDiv").AsSpan(), out int index1));
-            Assert.IsTrue(jsonStringDictionary.TryAddString(Encoding.UTF8.GetBytes("title").AsSpan(), out int index2));
+            Assert.IsTrue(jsonStringDictionary.TryAddString("GlossDiv", out int index1));
+            Assert.IsTrue(jsonStringDictionary.TryAddString("title", out int index2));
             this.VerifyReader(binaryInputWithEncoding, expectedTokens, jsonStringDictionary);
         }
 
@@ -2513,13 +2516,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
-
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 double valueFromString = double.Parse(stringRawJsonToken, CultureInfo.InvariantCulture);
                 Assert.AreEqual(expectedNumberValue, valueFromString);
             }
@@ -2536,12 +2534,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"I{expected}", stringRawJsonToken);
             }
         }
@@ -2557,12 +2551,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"H{expected}", stringRawJsonToken);
             }
         }
@@ -2578,12 +2568,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"L{expected}", stringRawJsonToken);
             }
         }
@@ -2599,12 +2585,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"LL{expected}", stringRawJsonToken);
             }
         }
@@ -2620,12 +2602,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"UL{expected}", stringRawJsonToken);
             }
         }
@@ -2641,12 +2619,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"S{expected.ToString("G9", CultureInfo.InvariantCulture)}", stringRawJsonToken);
             }
         }
@@ -2662,12 +2636,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"D{expected.ToString("G17", CultureInfo.InvariantCulture)}", stringRawJsonToken);
             }
         }
@@ -2683,12 +2653,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"G{expected.ToString()}", stringRawJsonToken);
             }
         }
@@ -2704,12 +2670,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
             // Additionally check if the text is correct
             if (jsonReader.SerializationFormat == JsonSerializationFormat.Text)
             {
-                if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-                {
-                    Assert.Fail("Failed to get the buffered raw json token.");
-                }
-
-                string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+                IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+                string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
                 Assert.AreEqual($"B{Convert.ToBase64String(expected.ToArray())}", stringRawJsonToken);
             }
         }
@@ -2743,12 +2705,8 @@ namespace Microsoft.Azure.Cosmos.Tests.Json
 
         private void VerifyFragment(IJsonReader jsonReader, string fragment, Encoding encoding)
         {
-            if (!jsonReader.TryGetBufferedRawJsonToken(out ReadOnlyMemory<byte> bufferedRawJsonToken))
-            {
-                Assert.Fail("Failed to get the buffered raw json token.");
-            }
-
-            string stringRawJsonToken = encoding.GetString(bufferedRawJsonToken.ToArray());
+            IJsonTextReaderPrivateImplementation textReader = (IJsonTextReaderPrivateImplementation)jsonReader;
+            string stringRawJsonToken = encoding.GetString(textReader.GetBufferedJsonToken().Memory.ToArray());
             Assert.AreEqual(fragment, stringRawJsonToken);
         }
     }

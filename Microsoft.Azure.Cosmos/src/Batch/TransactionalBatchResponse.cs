@@ -44,9 +44,7 @@ namespace Microsoft.Azure.Cosmos
             : this(statusCode,
                   subStatusCode,
                   errorMessage,
-                  requestCharge: 0,
-                  retryAfter: null,
-                  activityId: Guid.Empty.ToString(),
+                  new Headers(),
                   diagnosticsContext: diagnosticsContext,
                   operations: operations,
                   serializer: null)
@@ -65,9 +63,7 @@ namespace Microsoft.Azure.Cosmos
             HttpStatusCode statusCode,
             SubStatusCodes subStatusCode,
             string errorMessage,
-            double requestCharge,
-            TimeSpan? retryAfter,
-            string activityId,
+            Headers headers,
             CosmosDiagnosticsContext diagnosticsContext,
             IReadOnlyList<ItemBatchOperation> operations,
             CosmosSerializerCore serializer)
@@ -77,17 +73,20 @@ namespace Microsoft.Azure.Cosmos
             this.ErrorMessage = errorMessage;
             this.Operations = operations;
             this.SerializerCore = serializer;
-            this.RequestCharge = requestCharge;
-            this.RetryAfter = retryAfter;
-            this.ActivityId = activityId;
+            this.Headers = headers;
             this.Diagnostics = diagnosticsContext.Diagnostics;
             this.DiagnosticsContext = diagnosticsContext ?? throw new ArgumentNullException(nameof(diagnosticsContext));
         }
 
         /// <summary>
+        /// Gets the current HTTP headers.
+        /// </summary>
+        public virtual Headers Headers { get; internal set; }
+
+        /// <summary>
         /// Gets the ActivityId that identifies the server request made to execute the batch.
         /// </summary>
-        public virtual string ActivityId { get; }
+        public virtual string ActivityId => this.Headers?.ActivityId;
 
         /// <summary>
         /// Gets the request charge for the batch request.
@@ -95,12 +94,12 @@ namespace Microsoft.Azure.Cosmos
         /// <value>
         /// The request charge measured in request units.
         /// </value>
-        public virtual double RequestCharge { get; internal set; }
+        public virtual double RequestCharge => this.Headers?.RequestCharge ?? 0;
 
         /// <summary>
         /// Gets the amount of time to wait before retrying this or any other request within Cosmos container or collection due to throttling.
         /// </summary>
-        public virtual TimeSpan? RetryAfter { get; }
+        public virtual TimeSpan? RetryAfter => this.Headers?.RetryAfter;
 
         /// <summary>
         /// Gets the completion status code of the batch request.
@@ -219,7 +218,6 @@ namespace Microsoft.Azure.Cosmos
             ServerBatchRequest serverRequest,
             CosmosSerializerCore serializer,
             bool shouldPromoteOperationStatus,
-            bool shouldPerformDecryption,
             CancellationToken cancellationToken)
         {
             using (responseMessage)
@@ -253,9 +251,7 @@ namespace Microsoft.Azure.Cosmos
                                 HttpStatusCode.InternalServerError,
                                 SubStatusCodes.Unknown,
                                 ClientResources.ServerResponseDeserializationFailure,
-                                responseMessage.Headers.RequestCharge,
-                                responseMessage.Headers.RetryAfter,
-                                responseMessage.Headers.ActivityId,
+                                responseMessage.Headers,
                                 responseMessage.DiagnosticsContext,
                                 serverRequest.Operations,
                                 serializer);
@@ -269,9 +265,7 @@ namespace Microsoft.Azure.Cosmos
                         responseMessage.StatusCode,
                         responseMessage.Headers.SubStatusCode,
                         responseMessage.ErrorMessage,
-                        responseMessage.Headers.RequestCharge,
-                        responseMessage.Headers.RetryAfter,
-                        responseMessage.Headers.ActivityId,
+                        responseMessage.Headers,
                         responseMessage.DiagnosticsContext,
                         serverRequest.Operations,
                         serializer);
@@ -287,9 +281,7 @@ namespace Microsoft.Azure.Cosmos
                             HttpStatusCode.InternalServerError,
                             SubStatusCodes.Unknown,
                             ClientResources.InvalidServerResponse,
-                            responseMessage.Headers.RequestCharge,
-                            responseMessage.Headers.RetryAfter,
-                            responseMessage.Headers.ActivityId,
+                            responseMessage.Headers,
                             responseMessage.DiagnosticsContext,
                             serverRequest.Operations,
                             serializer);
@@ -309,19 +301,6 @@ namespace Microsoft.Azure.Cosmos
                     }
 
                     response.CreateAndPopulateResults(serverRequest.Operations, retryAfterMilliseconds);
-                }
-                else if (shouldPerformDecryption)
-                {
-                    for (int index = 0; index < serverRequest.Operations.Count; index++)
-                    {
-                        ContainerCore containerCore = serverRequest.Operations[index].ContainerCore;
-                        TransactionalBatchOperationResult result = response.results[index];
-                        result.ResourceStream = await containerCore.ClientContext.DecryptItemAsync(
-                            result.ResourceStream,
-                            (DatabaseCore)containerCore.Database,
-                            responseMessage.DiagnosticsContext,
-                            cancellationToken);
-                    }
                 }
 
                 return response;
@@ -355,7 +334,7 @@ namespace Microsoft.Azure.Cosmos
             int resizerInitialCapacity = (int)content.Length;
 
             Result res = await content.ReadRecordIOAsync(
-                record =>
+                (Func<ReadOnlyMemory<byte>, Result>)(record =>
                 {
                     Result r = TransactionalBatchOperationResult.ReadOperationResult(record, out TransactionalBatchOperationResult operationResult);
                     if (r != Result.Success)
@@ -365,7 +344,7 @@ namespace Microsoft.Azure.Cosmos
 
                     results.Add(operationResult);
                     return r;
-                },
+                }),
                 resizer: new MemorySpanResizer<byte>(resizerInitialCapacity));
 
             if (res != Result.Success)
@@ -396,9 +375,7 @@ namespace Microsoft.Azure.Cosmos
                 responseStatusCode,
                 responseSubStatusCode,
                 responseMessage.ErrorMessage,
-                responseMessage.Headers.RequestCharge,
-                responseMessage.Headers.RetryAfter,
-                responseMessage.Headers.ActivityId,
+                responseMessage.Headers,
                 responseMessage.DiagnosticsContext,
                 serverRequest.Operations,
                 serializer);

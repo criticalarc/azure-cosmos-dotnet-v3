@@ -17,12 +17,11 @@ namespace Microsoft.Azure.Cosmos
     internal class CosmosOffers
     {
         private readonly CosmosClientContext ClientContext;
-        private readonly Uri OfferRootUri;
+        private readonly string OfferRootUri = Paths.Offers_Root;
 
         public CosmosOffers(CosmosClientContext clientContext)
         {
             this.ClientContext = clientContext;
-            this.OfferRootUri = new Uri(Paths.Offers_Root, UriKind.Relative);
         }
 
         internal async Task<ThroughputResponse> ReadThroughputAsync(
@@ -174,11 +173,12 @@ namespace Microsoft.Azure.Cosmos
             QueryDefinition queryDefinition = new QueryDefinition("select * from root r where r.offerResourceId= @targetRID");
             queryDefinition.WithParameter("@targetRID", targetRID);
 
-            FeedIterator<T> databaseStreamIterator = this.GetOfferQueryIterator<T>(
-                 queryDefinition: queryDefinition,
-                 continuationToken: null,
-                 requestOptions: null,
-                 cancellationToken: cancellationToken);
+            using FeedIterator<T> databaseStreamIterator = this.GetOfferQueryIterator<T>(
+                queryDefinition: queryDefinition,
+                continuationToken: null,
+                requestOptions: null,
+                cancellationToken: cancellationToken);
+
             T offerV2 = await this.SingleOrDefaultAsync<T>(databaseStreamIterator);
 
             if (offerV2 == null &&
@@ -252,8 +252,8 @@ namespace Microsoft.Azure.Cosmos
            RequestOptions requestOptions = null,
            CancellationToken cancellationToken = default(CancellationToken))
         {
-            Task<ResponseMessage> responseMessage = this.ClientContext.ProcessResourceOperationStreamAsync(
-              resourceUri: linkUri,
+            ResponseMessage responseMessage = await this.ClientContext.ProcessResourceOperationStreamAsync(
+              resourceUri: linkUri.OriginalString,
               resourceType: resourceType,
               operationType: operationType,
               cosmosContainerCore: null,
@@ -263,7 +263,7 @@ namespace Microsoft.Azure.Cosmos
               requestEnricher: null,
               diagnosticsContext: null,
               cancellationToken: cancellationToken);
-            return await this.ClientContext.ResponseFactory.CreateThroughputResponseAsync(responseMessage);
+            return this.ClientContext.ResponseFactory.CreateThroughputResponse(responseMessage);
         }
     }
 }

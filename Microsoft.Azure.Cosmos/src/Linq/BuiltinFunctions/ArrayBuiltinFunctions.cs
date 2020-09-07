@@ -6,9 +6,10 @@ namespace Microsoft.Azure.Cosmos.Linq
 {
     using System.Collections;
     using System.Collections.Generic;
+    using System.Collections.Immutable;
     using System.Globalization;
     using System.Linq.Expressions;
-    using Microsoft.Azure.Cosmos.Sql;
+    using Microsoft.Azure.Cosmos.SqlObjects;
 
     internal static class ArrayBuiltinFunctions
     {
@@ -89,7 +90,7 @@ namespace Microsoft.Azure.Cosmos.Linq
                 }
 
                 SqlScalarExpression scalarExpression = ExpressionToSql.VisitNonSubqueryScalarExpression(expression, context);
-                return SqlInScalarExpression.Create(scalarExpression, false, items);
+                return SqlInScalarExpression.Create(scalarExpression, false, items.ToImmutableArray());
             }
         }
 

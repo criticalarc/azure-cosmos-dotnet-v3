@@ -2,7 +2,7 @@
 // Copyright (c) Microsoft Corporation.  All rights reserved.
 //------------------------------------------------------------
 
-namespace Microsoft.Azure.Cosmos.Sql
+namespace Microsoft.Azure.Cosmos.SqlObjects.Visitors
 {
     using System;
     using System.Globalization;
@@ -35,7 +35,6 @@ namespace Microsoft.Azure.Cosmos.Sql
         private const int SqlInScalarExpressionNotHashCode = -1131398119;
         private const int SqlJoinCollectionExpressionHashCode = 1000382226;
         private const int SqlLimitSpecHashCode = 92601316;
-        private const int SqlLiteralArrayCollectionHashCode = 1634639566;
         private const int SqlLiteralScalarExpressionHashCode = -158339101;
         private const int SqlMemberIndexerScalarExpressionHashCode = 1589675618;
         private const int SqlNullLiteralHashCode = -709456592;
@@ -123,7 +122,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlArrayCreateScalarExpression sqlArrayCreateScalarExpression)
         {
             int hashCode = SqlArrayCreateScalarExpressionHashCode;
-            for (int i = 0; i < sqlArrayCreateScalarExpression.Items.Count; i++)
+            for (int i = 0; i < sqlArrayCreateScalarExpression.Items.Length; i++)
             {
                 hashCode = CombineHashes(hashCode, sqlArrayCreateScalarExpression.Items[i].Accept(this));
             }
@@ -134,7 +133,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlArrayIteratorCollectionExpression sqlArrayIteratorCollectionExpression)
         {
             int hashCode = SqlArrayIteratorCollectionExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlArrayIteratorCollectionExpression.Alias.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlArrayIteratorCollectionExpression.Identifier.Accept(this));
             hashCode = CombineHashes(hashCode, sqlArrayIteratorCollectionExpression.Collection.Accept(this));
             return hashCode;
         }
@@ -150,13 +149,13 @@ namespace Microsoft.Azure.Cosmos.Sql
         {
             int hashCode = SqlBetweenScalarExpressionHashCode;
             hashCode = CombineHashes(hashCode, sqlBetweenScalarExpression.Expression.Accept(this));
-            if (sqlBetweenScalarExpression.IsNot)
+            if (sqlBetweenScalarExpression.Not)
             {
                 hashCode = SqlObjectHasher.CombineHashes(hashCode, SqlBetweenScalarExpressionNotHashCode);
             }
 
-            hashCode = CombineHashes(hashCode, sqlBetweenScalarExpression.LeftExpression.Accept(this));
-            hashCode = CombineHashes(hashCode, sqlBetweenScalarExpression.RightExpression.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlBetweenScalarExpression.StartInclusive.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlBetweenScalarExpression.EndInclusive.Accept(this));
             return hashCode;
         }
 
@@ -179,24 +178,24 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlCoalesceScalarExpression sqlCoalesceScalarExpression)
         {
             int hashCode = SqlCoalesceScalarExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlCoalesceScalarExpression.LeftExpression.Accept(this));
-            hashCode = CombineHashes(hashCode, sqlCoalesceScalarExpression.RightExpression.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlCoalesceScalarExpression.Left.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlCoalesceScalarExpression.Right.Accept(this));
             return hashCode;
         }
 
         public override int Visit(SqlConditionalScalarExpression sqlConditionalScalarExpression)
         {
             int hashCode = SqlConditionalScalarExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlConditionalScalarExpression.ConditionExpression.Accept(this));
-            hashCode = CombineHashes(hashCode, sqlConditionalScalarExpression.FirstExpression.Accept(this));
-            hashCode = CombineHashes(hashCode, sqlConditionalScalarExpression.SecondExpression.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlConditionalScalarExpression.Condition.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlConditionalScalarExpression.Consequent.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlConditionalScalarExpression.Alternative.Accept(this));
             return hashCode;
         }
 
         public override int Visit(SqlExistsScalarExpression sqlExistsScalarExpression)
         {
             int hashCode = SqlExistsScalarExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlExistsScalarExpression.SqlQuery.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlExistsScalarExpression.Subquery.Accept(this));
             return hashCode;
         }
 
@@ -216,7 +215,7 @@ namespace Microsoft.Azure.Cosmos.Sql
             }
 
             hashCode = CombineHashes(hashCode, sqlFunctionCallScalarExpression.Name.Accept(this));
-            for (int i = 0; i < sqlFunctionCallScalarExpression.Arguments.Count; i++)
+            for (int i = 0; i < sqlFunctionCallScalarExpression.Arguments.Length; i++)
             {
                 hashCode = CombineHashes(hashCode, sqlFunctionCallScalarExpression.Arguments[i].Accept(this));
             }
@@ -227,7 +226,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlGroupByClause sqlGroupByClause)
         {
             int hashCode = SqlGroupByClauseHashCode;
-            for (int i = 0; i < sqlGroupByClause.Expressions.Count; i++)
+            for (int i = 0; i < sqlGroupByClause.Expressions.Length; i++)
             {
                 hashCode = CombineHashes(hashCode, sqlGroupByClause.Expressions[i].Accept(this));
             }
@@ -269,15 +268,15 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlInScalarExpression sqlInScalarExpression)
         {
             int hashCode = SqlInScalarExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlInScalarExpression.Expression.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlInScalarExpression.Needle.Accept(this));
             if (sqlInScalarExpression.Not)
             {
                 hashCode = CombineHashes(hashCode, SqlInScalarExpressionNotHashCode);
             }
 
-            for (int i = 0; i < sqlInScalarExpression.Items.Count; i++)
+            for (int i = 0; i < sqlInScalarExpression.Haystack.Length; i++)
             {
-                hashCode = CombineHashes(hashCode, sqlInScalarExpression.Items[i].Accept(this));
+                hashCode = CombineHashes(hashCode, sqlInScalarExpression.Haystack[i].Accept(this));
             }
 
             return hashCode;
@@ -293,19 +292,8 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlJoinCollectionExpression sqlJoinCollectionExpression)
         {
             int hashCode = SqlJoinCollectionExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlJoinCollectionExpression.LeftExpression.Accept(this));
-            hashCode = CombineHashes(hashCode, sqlJoinCollectionExpression.RightExpression.Accept(this));
-            return hashCode;
-        }
-
-        public override int Visit(SqlLiteralArrayCollection sqlLiteralArrayCollection)
-        {
-            int hashCode = SqlLiteralArrayCollectionHashCode;
-            for (int i = 0; i < sqlLiteralArrayCollection.Items.Count; i++)
-            {
-                hashCode = CombineHashes(hashCode, sqlLiteralArrayCollection.Items[i].Accept(this));
-            }
-
+            hashCode = CombineHashes(hashCode, sqlJoinCollectionExpression.Left.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlJoinCollectionExpression.Right.Accept(this));
             return hashCode;
         }
 
@@ -319,8 +307,8 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlMemberIndexerScalarExpression sqlMemberIndexerScalarExpression)
         {
             int hashCode = SqlMemberIndexerScalarExpressionHashCode;
-            hashCode = CombineHashes(hashCode, sqlMemberIndexerScalarExpression.MemberExpression.Accept(this));
-            hashCode = CombineHashes(hashCode, sqlMemberIndexerScalarExpression.IndexExpression.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlMemberIndexerScalarExpression.Member.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlMemberIndexerScalarExpression.Indexer.Accept(this));
             return hashCode;
         }
 
@@ -372,7 +360,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         {
             int hashCode = SqlObjectPropertyHashCode;
             hashCode = CombineHashes(hashCode, sqlObjectProperty.Name.Accept(this));
-            hashCode = CombineHashes(hashCode, sqlObjectProperty.Expression.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlObjectProperty.Value.Accept(this));
             return hashCode;
         }
 
@@ -394,7 +382,7 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlOrderbyClause sqlOrderByClause)
         {
             int hashCode = SqlOrderbyClauseHashCode;
-            for (int i = 0; i < sqlOrderByClause.OrderbyItems.Count; i++)
+            for (int i = 0; i < sqlOrderByClause.OrderbyItems.Length; i++)
             {
                 hashCode = CombineHashes(hashCode, sqlOrderByClause.OrderbyItems[i].Accept(this));
             }
@@ -449,12 +437,12 @@ namespace Microsoft.Azure.Cosmos.Sql
         public override int Visit(SqlPropertyRefScalarExpression sqlPropertyRefScalarExpression)
         {
             int hashCode = SqlPropertyRefScalarExpressionHashCode;
-            if (sqlPropertyRefScalarExpression.MemberExpression != null)
+            if (sqlPropertyRefScalarExpression.Member != null)
             {
-                hashCode = CombineHashes(hashCode, sqlPropertyRefScalarExpression.MemberExpression.Accept(this));
+                hashCode = CombineHashes(hashCode, sqlPropertyRefScalarExpression.Member.Accept(this));
             }
 
-            hashCode = CombineHashes(hashCode, sqlPropertyRefScalarExpression.PropertyIdentifier.Accept(this));
+            hashCode = CombineHashes(hashCode, sqlPropertyRefScalarExpression.Identifier.Accept(this));
             return hashCode;
         }
 

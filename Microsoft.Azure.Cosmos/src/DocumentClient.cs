@@ -13,6 +13,7 @@ namespace Microsoft.Azure.Cosmos
     using System.Net;
     using System.Net.Http;
     using System.Net.Http.Headers;
+    using System.Runtime.CompilerServices;
     using System.Security;
     using System.Text;
     using System.Threading;
@@ -74,7 +75,7 @@ namespace Microsoft.Azure.Cosmos
     /// </para>
     ///
     /// </remarks>
-    internal partial class DocumentClient : IDisposable, IAuthorizationTokenProvider, IDocumentClient, IDocumentClientInternal
+    internal partial class DocumentClient : IDisposable, IAuthorizationTokenProvider, ICosmosAuthorizationTokenProvider, IDocumentClient, IDocumentClientInternal
     {
         private const string AllowOverrideStrongerConsistency = "AllowOverrideStrongerConsistency";
         private const string MaxConcurrentConnectionOpenConfig = "MaxConcurrentConnectionOpenRequests";
@@ -108,7 +109,8 @@ namespace Microsoft.Azure.Cosmos
         private const int DefaultRntbdSendHangDetectionTimeSeconds = 10;
         private const bool DefaultEnableCpuMonitor = true;
         private const bool EnableAuthFailureTraces = false;
-
+       
+        // Gateway has backoff/retry logic to hide transient errors.
         private readonly IDictionary<string, List<PartitionKeyAndResourceTokenPair>> resourceTokens;
         private RetryPolicy retryPolicy;
         private bool allowOverrideStrongerConsistency = false;
@@ -140,8 +142,6 @@ namespace Microsoft.Azure.Cosmos
 
         private PartitionKeyRangeCache partitionKeyRangeCache;
 
-        internal HttpMessageHandler httpMessageHandler;
-
         //Private state.
         private bool isSuccessfullyInitialized;
         private bool isDisposed;
@@ -149,7 +149,7 @@ namespace Microsoft.Azure.Cosmos
 
         // creator of TransportClient is responsible for disposing it.
         private IStoreClientFactory storeClientFactory;
-        private HttpClient mediaClient;
+        private CosmosHttpClient httpClient;
 
         // Flag that indicates whether store client factory must be disposed whenever client is disposed.
         // Setting this flag to false will result in store client factory not being disposed when client is disposed.
@@ -713,18 +713,6 @@ namespace Microsoft.Azure.Cosmos
 
         internal GlobalAddressResolver AddressResolver { get; private set; }
 
-        internal event EventHandler<SendingRequestEventArgs> SendingRequest
-        {
-            add
-            {
-                this.sendingRequest += value;
-            }
-            remove
-            {
-                this.sendingRequest -= value;
-            }
-        }
-
         internal GlobalEndpointManager GlobalEndpointManager { get; private set; }
 
         /// <summary>
@@ -992,36 +980,36 @@ namespace Microsoft.Azure.Cosmos
 #endif
 
             // ConnectionPolicy always overrides appconfig
-            if (this.ConnectionPolicy != null)
+            if (connectionPolicy != null)
             {
-                if (this.ConnectionPolicy.IdleTcpConnectionTimeout.HasValue)
+                if (connectionPolicy.IdleTcpConnectionTimeout.HasValue)
                 {
-                    this.idleConnectionTimeoutInSeconds = (int)this.ConnectionPolicy.IdleTcpConnectionTimeout.Value.TotalSeconds;
+                    this.idleConnectionTimeoutInSeconds = (int)connectionPolicy.IdleTcpConnectionTimeout.Value.TotalSeconds;
                 }
 
-                if (this.ConnectionPolicy.OpenTcpConnectionTimeout.HasValue)
+                if (connectionPolicy.OpenTcpConnectionTimeout.HasValue)
                 {
-                    this.openConnectionTimeoutInSeconds = (int)this.ConnectionPolicy.OpenTcpConnectionTimeout.Value.TotalSeconds;
+                    this.openConnectionTimeoutInSeconds = (int)connectionPolicy.OpenTcpConnectionTimeout.Value.TotalSeconds;
                 }
 
-                if (this.ConnectionPolicy.MaxRequestsPerTcpConnection.HasValue)
+                if (connectionPolicy.MaxRequestsPerTcpConnection.HasValue)
                 {
-                    this.maxRequestsPerRntbdChannel = this.ConnectionPolicy.MaxRequestsPerTcpConnection.Value;
+                    this.maxRequestsPerRntbdChannel = connectionPolicy.MaxRequestsPerTcpConnection.Value;
                 }
 
-                if (this.ConnectionPolicy.MaxTcpPartitionCount.HasValue)
+                if (connectionPolicy.MaxTcpPartitionCount.HasValue)
                 {
-                    this.rntbdPartitionCount = this.ConnectionPolicy.MaxTcpPartitionCount.Value;
+                    this.rntbdPartitionCount = connectionPolicy.MaxTcpPartitionCount.Value;
                 }
 
-                if (this.ConnectionPolicy.MaxTcpConnectionsPerEndpoint.HasValue)
+                if (connectionPolicy.MaxTcpConnectionsPerEndpoint.HasValue)
                 {
-                    this.maxRntbdChannels = this.ConnectionPolicy.MaxTcpConnectionsPerEndpoint.Value;
+                    this.maxRntbdChannels = connectionPolicy.MaxTcpConnectionsPerEndpoint.Value;
                 }
 
-                if (this.ConnectionPolicy.PortReuseMode.HasValue)
+                if (connectionPolicy.PortReuseMode.HasValue)
                 {
-                    this.rntbdPortReuseMode = this.ConnectionPolicy.PortReuseMode.Value;
+                    this.rntbdPortReuseMode = connectionPolicy.PortReuseMode.Value;
                 }
             }
 
@@ -1030,28 +1018,19 @@ namespace Microsoft.Azure.Cosmos
             this.ConnectionPolicy = connectionPolicy ?? ConnectionPolicy.Default;
 
 #if !NETSTANDARD16
-            ServicePoint servicePoint = ServicePointManager.FindServicePoint(this.ServiceEndpoint);
+            ServicePointAccessor servicePoint = ServicePointAccessor.FindServicePoint(this.ServiceEndpoint);
             servicePoint.ConnectionLimit = this.ConnectionPolicy.MaxConnectionLimit;
 #endif
 
             this.GlobalEndpointManager = new GlobalEndpointManager(this, this.ConnectionPolicy);
 
-            this.httpMessageHandler = new HttpRequestMessageHandler(this.sendingRequest, this.receivedResponse, handler);
-
-            this.mediaClient = new HttpClient(this.httpMessageHandler);
-
-            this.mediaClient.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true };
-            this.mediaClient.AddUserAgentHeader(this.ConnectionPolicy.UserAgentContainer);
-
-            this.mediaClient.AddApiTypeHeader(this.ApiType);
-
-            // Set requested API version header that can be used for
-            // version enforcement.
-            this.mediaClient.DefaultRequestHeaders.Add(HttpConstants.HttpHeaders.Version,
-                HttpConstants.Versions.CurrentVersion);
-
-            this.mediaClient.DefaultRequestHeaders.Add(HttpConstants.HttpHeaders.Accept,
-                RuntimeConstants.MediaTypes.Any);
+            this.httpClient = CosmosHttpClientCore.CreateWithConnectionPolicy(
+                this.ApiType,
+                DocumentClientEventSource.Instance,
+                this.ConnectionPolicy,
+                handler,
+                this.sendingRequest,
+                this.receivedResponse);
 
             if (sessionContainer != null)
             {
@@ -1064,8 +1043,6 @@ namespace Microsoft.Azure.Cosmos
 
             this.retryPolicy = new RetryPolicy(this.GlobalEndpointManager, this.ConnectionPolicy);
             this.ResetSessionTokenRetryPolicy = this.retryPolicy;
-
-            this.mediaClient.Timeout = this.ConnectionPolicy.MediaRequestTimeout;
 
             this.desiredConsistencyLevel = desiredConsistencyLevel;
             // Setup the proxy to be  used based on connection mode.
@@ -1120,13 +1097,10 @@ namespace Microsoft.Azure.Cosmos
             GatewayStoreModel gatewayStoreModel = new GatewayStoreModel(
                     this.GlobalEndpointManager,
                     this.sessionContainer,
-                    this.ConnectionPolicy.RequestTimeout,
                     (Cosmos.ConsistencyLevel)this.accountServiceConfiguration.DefaultConsistencyLevel,
                     this.eventSource,
                     this.serializerSettings,
-                    this.ConnectionPolicy.UserAgentContainer,
-                    this.ApiType,
-                    this.httpMessageHandler);
+                    this.httpClient);
 
             this.GatewayStoreModel = gatewayStoreModel;
 
@@ -1400,10 +1374,19 @@ namespace Microsoft.Azure.Cosmos
                 this.AddressResolver = null;
             }
 
-            if (this.mediaClient != null)
+            if (this.httpClient != null)
             {
-                this.mediaClient.Dispose();
-                this.mediaClient = null;
+                try
+                {
+                    this.httpClient.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    DefaultTrace.TraceWarning("Exception {0} thrown during dispose of HttpClient, this could happen if there are inflight request during the dispose of client",
+                        exception);
+                }
+
+                this.httpClient = null;
             }
 
             if (this.authKeyHashFunction != null)
@@ -1497,14 +1480,12 @@ namespace Microsoft.Azure.Cosmos
                 throw new ArgumentNullException(nameof(verb));
             }
 
-            string payload;
-            string authorization = ((IAuthorizationTokenProvider)this).GetUserAuthorizationToken(
+            (string authorization, string payload) = await ((IAuthorizationTokenProvider)this).GetUserAuthorizationAsync(
                 request.ResourceAddress,
                 PathsHelper.GetResourcePath(request.ResourceType),
                 verb,
                 request.Headers,
-                AuthorizationTokenType.PrimaryMasterKey,
-                out payload);
+                AuthorizationTokenType.PrimaryMasterKey);
 
             // Unit-test hook
             if (testAuthorization != null)
@@ -1538,7 +1519,7 @@ namespace Microsoft.Azure.Cosmos
                         if (this.authKeyHashFunction?.Key != null)
                         {
                             byte[] bytes = Encoding.UTF8.GetBytes(this.authKeyHashFunction?.Key?.ToString());
-                            authHash = MurmurHash3.Hash64(bytes, bytes.Length);
+                            authHash = Documents.Routing.MurmurHash3.Hash64(bytes, bytes.Length);
                         }
                         DefaultTrace.TraceError("Un-expected authorization payload mis-match. Actual payload={0}, token={1}..., hash={2:X}..., error={3}",
                             normalizedPayload, tokenFirst5, authHash, dce.Message);
@@ -6335,19 +6316,64 @@ namespace Microsoft.Azure.Cosmos
             return false;
         }
 
-        string IAuthorizationTokenProvider.GetUserAuthorizationToken(
+        ValueTask<(string token, string payload)> IAuthorizationTokenProvider.GetUserAuthorizationAsync(
+            string resourceAddress,
+            string resourceType,
+            string requestVerb,
+            INameValueCollection headers,
+            AuthorizationTokenType tokenType)
+        {
+            string authorizationToken = this.GetUserAuthorizationTokenCore(
+                resourceAddress,
+                resourceType,
+                requestVerb,
+                headers,
+                tokenType,
+                out AuthorizationHelper.ArrayOwner arrayOwner);
+            using (arrayOwner)
+            {
+                if (arrayOwner.Buffer.Count == 0)
+                {
+                    return new ValueTask<(string token, string payload)>((authorizationToken, null));
+                }
+ 
+                string payload = Encoding.UTF8.GetString(arrayOwner.Buffer.Array, arrayOwner.Buffer.Offset, (int)arrayOwner.Buffer.Count);
+                return new ValueTask<(string token, string payload)>((authorizationToken, payload));
+            }
+        }
+
+        string ICosmosAuthorizationTokenProvider.GetUserAuthorizationToken(
+            string resourceAddress,
+            string resourceType,
+            string requestVerb,
+            INameValueCollection headers,
+            AuthorizationTokenType tokenType)
+        {
+            string authorizationToken = this.GetUserAuthorizationTokenCore(
+                resourceAddress,
+                resourceType,
+                requestVerb,
+                headers,
+                tokenType,
+                out AuthorizationHelper.ArrayOwner arrayOwner);
+            using (arrayOwner)
+            {
+                return authorizationToken;
+            }
+        }
+
+        private string GetUserAuthorizationTokenCore(
             string resourceAddress,
             string resourceType,
             string requestVerb,
             INameValueCollection headers,
             AuthorizationTokenType tokenType,
-            out string payload) // unused, use token based upon what is passed in constructor 
+            out AuthorizationHelper.ArrayOwner payload) // unused, use token based upon what is passed in constructor 
         {
-            payload = null;
-
             if (this.hasAuthKeyResourceToken && this.resourceTokens == null)
             {
                 // If the input auth token is a resource token, then use it as a bearer-token.
+                payload = default;
                 return HttpUtility.UrlEncode(this.authKeyResourceToken);
             }
 
@@ -6409,6 +6435,7 @@ namespace Microsoft.Azure.Cosmos
                            CultureInfo.InvariantCulture, ClientResources.AuthTokenNotFound, resourceAddress));
                     }
 
+                    payload = default;
                     return HttpUtility.UrlEncode(resourceToken);
                 }
                 else
@@ -6479,12 +6506,13 @@ namespace Microsoft.Azure.Cosmos
                             CultureInfo.InvariantCulture, ClientResources.AuthTokenNotFound, resourceAddress));
                     }
 
+                    payload = default;
                     return HttpUtility.UrlEncode(resourceToken);
                 }
             }
         }
 
-        Task IAuthorizationTokenProvider.AddSystemAuthorizationHeaderAsync(
+        async Task IAuthorizationTokenProvider.AddSystemAuthorizationHeaderAsync(
             DocumentServiceRequest request,
             string federationId,
             string verb,
@@ -6492,15 +6520,12 @@ namespace Microsoft.Azure.Cosmos
         {
             request.Headers[HttpConstants.HttpHeaders.XDate] = DateTime.UtcNow.ToString("r", CultureInfo.InvariantCulture);
 
-            request.Headers[HttpConstants.HttpHeaders.Authorization] = ((IAuthorizationTokenProvider)this).GetUserAuthorizationToken(
+            request.Headers[HttpConstants.HttpHeaders.Authorization] = (await ((IAuthorizationTokenProvider)this).GetUserAuthorizationAsync(
                 resourceId ?? request.ResourceAddress,
                 PathsHelper.GetResourcePath(request.ResourceType),
                 verb,
                 request.Headers,
-                request.RequestAuthorizationTokenType,
-                payload: out _);
-
-            return Task.FromResult(0);
+                request.RequestAuthorizationTokenType)).token;
         }
 
         #endregion
@@ -6643,8 +6668,9 @@ namespace Microsoft.Azure.Cosmos
             GatewayStoreModel gatewayModel = this.GatewayStoreModel as GatewayStoreModel;
             if (gatewayModel != null)
             {
-                using (HttpRequestMessage request = new HttpRequestMessage())
+                ValueTask<HttpRequestMessage> CreateRequestMessage()
                 {
+                    HttpRequestMessage request = new HttpRequestMessage();
                     INameValueCollection headersCollection = new DictionaryNameValueCollection();
                     string xDate = DateTime.UtcNow.ToString("r");
                     headersCollection.Add(HttpConstants.HttpHeaders.XDate, xDate);
@@ -6670,13 +6696,13 @@ namespace Microsoft.Azure.Cosmos
 
                     request.Method = HttpMethod.Get;
                     request.RequestUri = serviceEndpoint;
-
-                    AccountProperties databaseAccount = await gatewayModel.GetDatabaseAccountAsync(request);
-
-                    this.UseMultipleWriteLocations = this.ConnectionPolicy.UseMultipleWriteLocations && databaseAccount.EnableMultipleWriteLocations;
-
-                    return databaseAccount;
+                    return new ValueTask<HttpRequestMessage>(request);
                 }
+
+                AccountProperties databaseAccount = await gatewayModel.GetDatabaseAccountAsync(CreateRequestMessage);
+
+                this.UseMultipleWriteLocations = this.ConnectionPolicy.UseMultipleWriteLocations && databaseAccount.EnableMultipleWriteLocations;
+                return databaseAccount;
             }
 
             return null;
@@ -6807,11 +6833,9 @@ namespace Microsoft.Azure.Cosmos
                 this,
                 this.collectionCache,
                 this.partitionKeyRangeCache,
-                this.ConnectionPolicy.UserAgentContainer,
                 this.accountServiceConfiguration,
-                this.httpMessageHandler,
                 this.ConnectionPolicy,
-                this.ApiType);
+                this.httpClient);
 
             // Check if we have a store client factory in input and if we do, do not initialize another store client
             // The purpose is to reuse store client factory across all document clients inside compute gateway
@@ -6893,13 +6917,12 @@ namespace Microsoft.Azure.Cosmos
         private async Task InitializeGatewayConfigurationReaderAsync()
         {
             GatewayAccountReader accountReader = new GatewayAccountReader(
-                    this.ServiceEndpoint,
-                    this.authKeyHashFunction,
-                    this.hasAuthKeyResourceToken,
-                    this.authKeyResourceToken,
-                    this.ConnectionPolicy,
-                    this.ApiType,
-                    this.httpMessageHandler);
+                    serviceEndpoint: this.ServiceEndpoint,
+                    stringHMACSHA256Helper: this.authKeyHashFunction,
+                    hasResourceToken: this.hasAuthKeyResourceToken,
+                    resourceToken: this.authKeyResourceToken,
+                    connectionPolicy: this.ConnectionPolicy,
+                    httpClient: this.httpClient);
 
             this.accountServiceConfiguration = new CosmosAccountServiceConfiguration(accountReader.InitializeReaderAsync);
 

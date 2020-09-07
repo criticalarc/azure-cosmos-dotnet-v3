@@ -46,9 +46,10 @@ namespace Microsoft.Azure.Cosmos.Query
             string continuationToken,
             FeedRangeInternal feedRangeInternal,
             QueryRequestOptions queryRequestOptions,
-            Uri resourceLink,
+            string resourceLink,
             bool isContinuationExpected,
             bool allowNonValueAggregateQuery,
+            bool forcePassthrough,
             PartitionedQueryExecutionInfo partitionedQueryExecutionInfo)
         {
             if (queryRequestOptions == null)
@@ -118,6 +119,7 @@ namespace Microsoft.Azure.Cosmos.Query
                 partitionedQueryExecutionInfo: partitionedQueryExecutionInfo,
                 executionEnvironment: queryRequestOptions.ExecutionEnvironment,
                 returnResultsInDeterministicOrder: queryRequestOptions.ReturnResultsInDeterministicOrder,
+                forcePassthrough: forcePassthrough,
                 testInjections: queryRequestOptions.TestSettings);
 
             return new QueryIterator(
@@ -135,22 +137,26 @@ namespace Microsoft.Azure.Cosmos.Query
             CosmosDiagnosticsContext diagnostics = CosmosDiagnosticsContext.Create(this.requestOptions);
             using (diagnostics.GetOverallScope())
             {
-                // This catches exception thrown by the pipeline and converts it to QueryResponse
-                QueryResponseCore responseCore = await this.cosmosQueryExecutionContext.ExecuteNextAsync(cancellationToken);
-
-                // This swaps the diagnostics in the context. This shows all the page reads between the previous ReadNextAsync and the current ReadNextAsync
-                diagnostics.AddDiagnosticsInternal(this.cosmosQueryContext.GetAndResetDiagnostics());
+                QueryResponseCore responseCore;
+                try
+                {
+                    // This catches exception thrown by the pipeline and converts it to QueryResponse
+                    responseCore = await this.cosmosQueryExecutionContext.ExecuteNextAsync(cancellationToken);
+                }
+                catch (OperationCanceledException ex) when (!(ex is CosmosOperationCanceledException))
+                {
+                    throw new CosmosOperationCanceledException(ex, diagnostics);
+                }
+                finally
+                {
+                    // This swaps the diagnostics in the context. This shows all the page reads between the previous ReadNextAsync and the current ReadNextAsync
+                    diagnostics.AddDiagnosticsInternal(this.cosmosQueryContext.GetAndResetDiagnostics());
+                }
 
                 if (responseCore.IsSuccess)
                 {
-                    List<CosmosElement> decryptedCosmosElements = null;
-                    if (this.clientContext.ClientOptions.Encryptor != null)
-                    {
-                        decryptedCosmosElements = await this.GetDecryptedElementResponseAsync(responseCore.CosmosElements, diagnostics, cancellationToken);
-                    }
-
                     return QueryResponse.CreateSuccess(
-                        result: decryptedCosmosElements ?? responseCore.CosmosElements,
+                        result: responseCore.CosmosElements,
                         count: responseCore.CosmosElements.Count,
                         responseLengthBytes: responseCore.ResponseLengthBytes,
                         diagnostics: diagnostics,
@@ -190,38 +196,15 @@ namespace Microsoft.Azure.Cosmos.Query
             }
         }
 
-        public override CosmosElement GetCosmsoElementContinuationToken()
+        public override CosmosElement GetCosmosElementContinuationToken()
         {
             return this.cosmosQueryExecutionContext.GetCosmosElementContinuationToken();
         }
 
-        private async Task<List<CosmosElement>> GetDecryptedElementResponseAsync(
-            IReadOnlyList<CosmosElement> encryptedCosmosElements,
-            CosmosDiagnosticsContext diagnosticsContext,
-            CancellationToken cancellationToken)
+        protected override void Dispose(bool disposing)
         {
-            List<CosmosElement> decryptedCosmosElements = new List<CosmosElement>();
-            using (diagnosticsContext.CreateScope("Decrypt"))
-            {
-                foreach (CosmosElement document in encryptedCosmosElements)
-                {
-                    if (!(document is CosmosObject documentObject))
-                    {
-                        decryptedCosmosElements.Add(document);
-                        continue;
-                    }
-
-                    CosmosObject decryptedDocument = await this.clientContext.EncryptionProcessor.DecryptAsync(
-                        documentObject,
-                        this.clientContext.ClientOptions.Encryptor,
-                        diagnosticsContext,
-                        cancellationToken);
-
-                    decryptedCosmosElements.Add(decryptedDocument);
-                }
-            }
-
-            return decryptedCosmosElements;
+            this.cosmosQueryExecutionContext.Dispose();
+            base.Dispose(disposing);
         }
     }
 }
