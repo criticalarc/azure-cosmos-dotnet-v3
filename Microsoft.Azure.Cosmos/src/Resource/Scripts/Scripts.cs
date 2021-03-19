@@ -4,7 +4,6 @@
 
 namespace Microsoft.Azure.Cosmos.Scripts
 {
-    using System;
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
@@ -65,7 +64,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<StoredProcedureResponse> CreateStoredProcedureAsync(
                     StoredProcedureProperties storedProcedureProperties,
                     RequestOptions requestOptions = null,
-                    CancellationToken cancellationToken = default(CancellationToken));
+                    CancellationToken cancellationToken = default);
 
         /// <summary>
         /// This method creates a query for stored procedures under a container using a SQL statement. It returns a FeedIterator.
@@ -84,20 +83,13 @@ namespace Microsoft.Azure.Cosmos.Scripts
         /// string queryText = "SELECT * FROM s where s.id like @testId";
         /// QueryDefinition queryDefinition = new QueryDefinition(queryText);
         /// queryDefinition.WithParameter("@testId", "testSprocId");
-        /// using (FeedIterator<StoredProcedureProperties> iter = this.scripts.GetStoredProcedureQueryIterator<StoredProcedureProperties>(queryDefinition))
+        /// using (FeedIterator<StoredProcedureProperties> feedIterator = scripts.GetStoredProcedureQueryIterator<StoredProcedureProperties>(queryDefinition))
         /// {
         ///     while (feedIterator.HasMoreResults)
         ///     {
-        ///         // Stream iterator returns a response with status for errors
-        ///         using(ResponseMessage response = await feedIterator.ReadNextAsync())
+        ///         foreach (StoredProcedureProperties storedProcedure in await feedIterator.ReadNextAsync())
         ///         {
-        ///             // Handle failure scenario. 
-        ///             if(!response.IsSuccessStatusCode)
-        ///             {
-        ///                 // Log the response.Diagnostics and handle the error
-        ///             }
-        ///
-        ///             // Process the response.Content Stream
+        ///             Console.WriteLine(storedProcedure.Id);
         ///         }
         ///     }
         /// }
@@ -126,7 +118,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         /// string queryText = "SELECT * FROM s where s.id like @testId";
         /// QueryDefinition queryDefinition = new QueryDefinition(queryText);
         /// queryDefinition.WithParameter("@testId", "testSprocId");
-        /// using (FeedIterator iter = this.scripts.GetStoredProcedureQueryStreamIterator(queryDefinition))
+        /// using (FeedIterator feedIterator = scripts.GetStoredProcedureQueryStreamIterator(queryDefinition))
         /// {
         ///     while (feedIterator.HasMoreResults)
         ///     {
@@ -170,7 +162,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         /// {
         ///     while (feedIterator.HasMoreResults)
         ///     {
-        ///         foreach (var properties in await feedIterator.ReadNextAsync())
+        ///         foreach (StoredProcedureProperties properties in await feedIterator.ReadNextAsync())
         ///         {
         ///             Console.WriteLine(properties.Id);
         ///         }
@@ -246,7 +238,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<StoredProcedureResponse> ReadStoredProcedureAsync(
             string id,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Replaces a <see cref="StoredProcedureProperties"/> in the Azure Cosmos service as an asynchronous operation.
@@ -281,7 +273,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<StoredProcedureResponse> ReplaceStoredProcedureAsync(
             StoredProcedureProperties storedProcedureProperties,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Delete a <see cref="StoredProcedureProperties"/> from the Azure Cosmos DB service as an asynchronous operation.
@@ -303,7 +295,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<StoredProcedureResponse> DeleteStoredProcedureAsync(
             string id,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Executes a stored procedure against a container as an asynchronous operation in the Azure Cosmos service.
@@ -361,7 +353,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
             PartitionKey partitionKey,
             dynamic[] parameters,
             StoredProcedureRequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Executes a stored procedure against a container as an asynchronous operation in the Azure Cosmos service and obtains a Stream as response.
@@ -423,7 +415,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
             PartitionKey partitionKey,
             dynamic[] parameters,
             StoredProcedureRequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Executes a stored procedure against a container as an asynchronous operation in the Azure Cosmos service and obtains a Stream as response.
@@ -490,7 +482,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
             Stream streamPayload,
             PartitionKey partitionKey,
             StoredProcedureRequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Creates a trigger as an asynchronous operation in the Azure Cosmos DB service.
@@ -536,7 +528,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<TriggerResponse> CreateTriggerAsync(
             TriggerProperties triggerProperties,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// This method creates a query for triggers under a container using a SQL statement. It returns a FeedIterator.
@@ -695,7 +687,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<TriggerResponse> ReadTriggerAsync(
             string id,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Replaces a <see cref="TriggerProperties"/> in the Azure Cosmos service as an asynchronous operation.
@@ -735,7 +727,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<TriggerResponse> ReplaceTriggerAsync(
                     TriggerProperties triggerProperties,
                     RequestOptions requestOptions = null,
-                    CancellationToken cancellationToken = default(CancellationToken));
+                    CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Delete a <see cref="TriggerProperties"/> from the Azure Cosmos service as an asynchronous operation.
@@ -757,7 +749,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<TriggerResponse> DeleteTriggerAsync(
             string id,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Creates a user defined function as an asynchronous operation in the Azure Cosmos DB service.
@@ -802,7 +794,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<UserDefinedFunctionResponse> CreateUserDefinedFunctionAsync(
             UserDefinedFunctionProperties userDefinedFunctionProperties,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// This method creates a query for user defined functions under a container using a SQL statement. It returns a FeedIterator.
@@ -975,7 +967,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<UserDefinedFunctionResponse> ReadUserDefinedFunctionAsync(
             string id,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Replaces a <see cref="UserDefinedFunctionProperties"/> in the Azure Cosmos DB service as an asynchronous operation.
@@ -1005,7 +997,7 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<UserDefinedFunctionResponse> ReplaceUserDefinedFunctionAsync(
             UserDefinedFunctionProperties userDefinedFunctionProperties,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Delete a <see cref="UserDefinedFunctionProperties"/> from the Azure Cosmos DB service as an asynchronous operation.
@@ -1027,6 +1019,6 @@ namespace Microsoft.Azure.Cosmos.Scripts
         public abstract Task<UserDefinedFunctionResponse> DeleteUserDefinedFunctionAsync(
             string id,
             RequestOptions requestOptions = null,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
     }
 }

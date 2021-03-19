@@ -12,7 +12,6 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Configuration
     /// </summary>
     internal class ChangeFeedProcessorOptions
     {
-        private const int DefaultQueryPartitionsMaxBatchSize = 100;
         private static readonly TimeSpan DefaultFeedPollDelay = TimeSpan.FromSeconds(5);
         private DateTime? startTime;
 
@@ -20,7 +19,6 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Configuration
         public ChangeFeedProcessorOptions()
         {
             this.FeedPollDelay = DefaultFeedPollDelay;
-            this.QueryFeedMaxBatchSize = DefaultQueryPartitionsMaxBatchSize;
             this.CheckpointFrequency = new CheckpointFrequency();
         }
 
@@ -64,15 +62,15 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Configuration
         /// <seealso cref="ChangeFeedOptions.StartTime"/>
         public DateTime? StartTime
         {
-            get
-            {
-                return this.startTime;
-            }
+            get => this.startTime;
 
             set
             {
                 if (value.HasValue && value.Value.Kind == DateTimeKind.Unspecified)
+                {
                     throw new ArgumentException("StartTime cannot have DateTimeKind.Unspecified", nameof(value));
+                }
+
                 this.startTime = value;
             }
         }
@@ -94,10 +92,5 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Configuration
         /// Gets or sets the session token for use with session consistency in the Azure Cosmos DB service.
         /// </summary>
         internal string SessionToken { get; set; }
-
-        /// <summary>
-        /// Gets or sets the Batch size of query API.
-        /// </summary>
-        internal int QueryFeedMaxBatchSize { get; set; }
     }
 }

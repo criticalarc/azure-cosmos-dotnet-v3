@@ -4,7 +4,6 @@
 
 namespace Microsoft.Azure.Cosmos
 {
-    using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Scripts;
 
     internal abstract class CosmosResponseFactoryInternal : CosmosResponseFactory
@@ -29,6 +28,10 @@ namespace Microsoft.Azure.Cosmos
 
         public abstract PermissionResponse CreatePermissionResponse(
             Permission permission,
+            ResponseMessage responseMessage);
+
+        public abstract ClientEncryptionKeyResponse CreateClientEncryptionKeyResponse(
+            ClientEncryptionKey clientEncryptionKey,
             ResponseMessage responseMessage);
 
         public abstract DatabaseResponse CreateDatabaseResponse(

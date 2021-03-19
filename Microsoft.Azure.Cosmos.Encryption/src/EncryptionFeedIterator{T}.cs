@@ -17,13 +17,14 @@ namespace Microsoft.Azure.Cosmos.Encryption
             EncryptionFeedIterator feedIterator,
             CosmosResponseFactory responseFactory)
         {
-            if (!(feedIterator is EncryptionFeedIterator))
+            this.feedIterator = feedIterator ?? throw new ArgumentNullException(nameof(feedIterator));
+
+            if (feedIterator is not EncryptionFeedIterator)
             {
-                throw new ArgumentOutOfRangeException($"{nameof(feedIterator)} must be of type {nameof(EncryptionFeedIterator)}.");
+                throw new ArgumentOutOfRangeException($"{nameof(feedIterator)} must be of type {nameof(EncryptionFeedIterator)}. ");
             }
 
-            this.feedIterator = feedIterator;
-            this.responseFactory = responseFactory;
+            this.responseFactory = responseFactory ?? throw new ArgumentNullException(nameof(responseFactory));
         }
 
         public override bool HasMoreResults => this.feedIterator.HasMoreResults;

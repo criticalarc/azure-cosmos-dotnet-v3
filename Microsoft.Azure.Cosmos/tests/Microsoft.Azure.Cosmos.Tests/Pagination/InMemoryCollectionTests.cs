@@ -4,6 +4,7 @@
 
 namespace Microsoft.Azure.Cosmos.Tests.Pagination
 {
+    using Microsoft.Azure.Cosmos.CosmosElements;
     using Microsoft.Azure.Cosmos.Pagination;
     using Microsoft.Azure.Documents;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -13,15 +14,25 @@ namespace Microsoft.Azure.Cosmos.Tests.Pagination
     {
         internal override IDocumentContainer CreateDocumentContainer(
             PartitionKeyDefinition partitionKeyDefinition,
+            int numItems = 0,
             FlakyDocumentContainer.FailureConfigs failureConfigs = null)
         {
             IMonadicDocumentContainer monadicDocumentContainer = new InMemoryContainer(partitionKeyDefinition);
-            if(failureConfigs != null)
+            if (failureConfigs != null)
             {
                 monadicDocumentContainer = new FlakyDocumentContainer(monadicDocumentContainer, failureConfigs);
             }
 
-            return new DocumentContainer(monadicDocumentContainer);
+            DocumentContainer documentContainer = new DocumentContainer(monadicDocumentContainer);
+
+            for (int i = 0; i < numItems; i++)
+            {
+                // Insert an item
+                CosmosObject item = CosmosObject.Parse($"{{\"pk\" : {i} }}");
+                documentContainer.CreateItemAsync(item, cancellationToken: default).Wait();
+            }
+
+            return documentContainer;
         }
     }
 }

@@ -13,6 +13,7 @@ namespace Microsoft.Azure.Cosmos.Core.Tests
     using Microsoft.Azure.Cosmos.CosmosElements;
     using Microsoft.Azure.Cosmos.Query.Core;
     using Microsoft.Azure.Cosmos.Scripts;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using Moq;
     using Newtonsoft.Json;
@@ -205,9 +206,15 @@ namespace Microsoft.Azure.Cosmos.Core.Tests
             mockUserJsonSerializer.VerifyAll();
 
             ResponseMessage changeFeedResponseMessage = this.CreateChangeFeedNotModifiedResponse();
-            FeedResponse<ToDoActivity> changeFeedResponse = cosmosResponseFactory.CreateItemFeedResponse<ToDoActivity>(changeFeedResponseMessage);
-            Assert.AreEqual(HttpStatusCode.NotModified, changeFeedResponse.StatusCode);
-            Assert.IsFalse(changeFeedResponse.Resource.Any());
+            try
+            {
+                cosmosResponseFactory.CreateItemFeedResponse<ToDoActivity>(changeFeedResponseMessage);
+                Assert.Fail();
+            }
+            catch (CosmosException cosmosException)
+            {
+                Assert.AreEqual(HttpStatusCode.NotModified, cosmosException.StatusCode);
+            }
 
             ResponseMessage queryResponse = this.CreateReadFeedResponse();
             mockUserJsonSerializer.Setup(x => x.FromStream<ToDoActivity[]>(It.IsAny<Stream>())).Callback<Stream>(input => input.Dispose()).Returns(new ToDoActivity[] { new ToDoActivity() });
@@ -354,8 +361,8 @@ namespace Microsoft.Azure.Cosmos.Core.Tests
                     disallowContinuationTokenMessage: null,
                     resourceType: Documents.ResourceType.Document,
                     "+o4fAPfXPzw="),
-                new CosmosDiagnosticsContextCore(),
-                null);
+                null,
+                NoOpTrace.Singleton);
 
             return cosmosResponse;
         }

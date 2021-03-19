@@ -6,6 +6,7 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
 #nullable enable
 
     using System;
+    using Microsoft.Azure.Cosmos.Core.Utf8;
     using Microsoft.Azure.Cosmos.Json;
 
 #if INTERNAL
@@ -21,7 +22,7 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
         {
             private readonly IJsonNavigator jsonNavigator;
             private readonly IJsonNavigatorNode jsonNavigatorNode;
-            private readonly Lazy<string> lazyString;
+            private readonly Lazy<UtfAnyString> lazyString;
 
             public LazyCosmosString(IJsonNavigator jsonNavigator, IJsonNavigatorNode jsonNavigatorNode)
             {
@@ -33,16 +34,15 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
 
                 this.jsonNavigator = jsonNavigator;
                 this.jsonNavigatorNode = jsonNavigatorNode;
-                this.lazyString = new Lazy<string>(() => this.jsonNavigator.GetStringValue(this.jsonNavigatorNode));
+                this.lazyString = new Lazy<UtfAnyString>(() => this.jsonNavigator.GetStringValue(this.jsonNavigatorNode));
             }
 
-            public override string Value => this.lazyString.Value;
+            public override UtfAnyString Value => this.lazyString.Value;
 
-            public override bool TryGetBufferedValue(out Utf8Memory bufferedValue) => this.jsonNavigator.TryGetBufferedStringValue(
-                this.jsonNavigatorNode,
-                out bufferedValue);
-
-            public override void WriteTo(IJsonWriter jsonWriter) => this.jsonNavigator.WriteNode(this.jsonNavigatorNode, jsonWriter);
+            public override void WriteTo(IJsonWriter jsonWriter)
+            {
+                this.jsonNavigator.WriteNode(this.jsonNavigatorNode, jsonWriter);
+            }
         }
     }
 #if INTERNAL

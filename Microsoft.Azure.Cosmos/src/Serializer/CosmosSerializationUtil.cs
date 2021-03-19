@@ -4,18 +4,19 @@
 
 namespace Microsoft.Azure.Cosmos
 {
+    using Microsoft.Azure.Cosmos.Serializer;
     using Newtonsoft.Json.Serialization;
 
     internal static class CosmosSerializationUtil
     {
-        private static CamelCaseNamingStrategy camelCaseNamingStrategy = new CamelCaseNamingStrategy();
+        private static readonly CamelCaseNamingStrategy camelCaseNamingStrategy = new CamelCaseNamingStrategy();
 
         internal static string ToCamelCase(string name)
         {
             return CosmosSerializationUtil.camelCaseNamingStrategy.GetPropertyName(name, false);
         }
 
-        internal static string GetStringWithPropertyNamingPolicy(CosmosSerializationOptions options, string name)
+        internal static string GetStringWithPropertyNamingPolicy(CosmosLinqSerializerOptions options, string name)
         {
             if (options != null && options.PropertyNamingPolicy == CosmosPropertyNamingPolicy.CamelCase)
             {

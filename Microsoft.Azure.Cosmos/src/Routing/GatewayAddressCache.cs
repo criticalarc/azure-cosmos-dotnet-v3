@@ -16,13 +16,14 @@ namespace Microsoft.Azure.Cosmos.Routing
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Common;
     using Microsoft.Azure.Cosmos.Core.Trace;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Client;
     using Microsoft.Azure.Documents.Collections;
     using Microsoft.Azure.Documents.Rntbd;
     using Microsoft.Azure.Documents.Routing;
 
-    internal class GatewayAddressCache : IAddressCache, IDisposable
+    internal class GatewayAddressCache : IAddressCache
     {
         private const string protocolFilterFormat = "{0} eq {1}";
 
@@ -258,10 +259,15 @@ namespace Microsoft.Azure.Cosmos.Routing
             }
 
             List<Task> tasks = new List<Task>();
-            HashSet<PartitionKeyRangeIdentity> pkRangeIds;
-            if (this.serverPartitionAddressToPkRangeIdMap.TryGetValue(serverKey, out pkRangeIds))
+            if (this.serverPartitionAddressToPkRangeIdMap.TryRemove(serverKey, out HashSet<PartitionKeyRangeIdentity> pkRangeIds))
             {
-                foreach (PartitionKeyRangeIdentity pkRangeId in pkRangeIds)
+                PartitionKeyRangeIdentity[] pkRangeIdsCopy;
+                lock (pkRangeIds)
+                {
+                    pkRangeIdsCopy = pkRangeIds.ToArray();
+                }
+
+                foreach (PartitionKeyRangeIdentity pkRangeId in pkRangeIdsCopy)
                 {
                     DefaultTrace.TraceInformation("Remove addresses for collectionRid :{0}, pkRangeId: {1}, serviceEndpoint: {2}",
                        pkRangeId.CollectionRid,
@@ -270,10 +276,6 @@ namespace Microsoft.Azure.Cosmos.Routing
 
                     tasks.Add(this.serverPartitionAddressCache.RemoveAsync(pkRangeId));
                 }
-
-                // remove the server key from the map since we are updating the addresses
-                HashSet<PartitionKeyRangeIdentity> ignorePkRanges;
-                this.serverPartitionAddressToPkRangeIdMap.TryRemove(serverKey, out ignorePkRanges);
             }
 
             return Task.WhenAll(tasks);
@@ -387,10 +389,12 @@ namespace Microsoft.Azure.Cosmos.Routing
             bool forceRefresh,
             bool useMasterCollectionResolver)
         {
-            INameValueCollection addressQuery = new DictionaryNameValueCollection(StringComparer.Ordinal);
-            addressQuery.Add(HttpConstants.QueryStrings.Url, HttpUtility.UrlEncode(entryUrl));
+            INameValueCollection addressQuery = new StoreRequestNameValueCollection
+            {
+                { HttpConstants.QueryStrings.Url, HttpUtility.UrlEncode(entryUrl) }
+            };
 
-            INameValueCollection headers = new DictionaryNameValueCollection(StringComparer.Ordinal);
+            INameValueCollection headers = new StoreRequestNameValueCollection();
             if (forceRefresh)
             {
                 headers.Set(HttpConstants.HttpHeaders.ForceRefresh, bool.TrueString);
@@ -427,7 +431,8 @@ namespace Microsoft.Azure.Cosmos.Routing
                 uri: targetEndpoint,
                 additionalHeaders: headers,
                 resourceType: resourceType,
-                diagnosticsContext: null,
+                timeoutPolicy: HttpTimeoutPolicyControlPlaneRetriableHotPath.Instance,
+                trace: NoOpTrace.Singleton,
                 cancellationToken: default))
             {
                 using (DocumentServiceResponse documentServiceResponse =
@@ -447,10 +452,12 @@ namespace Microsoft.Azure.Cosmos.Routing
         {
             string entryUrl = PathsHelper.GeneratePath(ResourceType.Document, collectionRid, true);
 
-            INameValueCollection addressQuery = new DictionaryNameValueCollection();
-            addressQuery.Add(HttpConstants.QueryStrings.Url, HttpUtility.UrlEncode(entryUrl));
+            INameValueCollection addressQuery = new StoreRequestNameValueCollection
+            {
+                { HttpConstants.QueryStrings.Url, HttpUtility.UrlEncode(entryUrl) }
+            };
 
-            INameValueCollection headers = new DictionaryNameValueCollection();
+            INameValueCollection headers = new StoreRequestNameValueCollection();
             if (forceRefresh)
             {
                 headers.Set(HttpConstants.HttpHeaders.ForceRefresh, bool.TrueString);
@@ -502,7 +509,8 @@ namespace Microsoft.Azure.Cosmos.Routing
                 uri: targetEndpoint,
                 additionalHeaders: headers,
                 resourceType: ResourceType.Document,
-                diagnosticsContext: null,
+                timeoutPolicy: HttpTimeoutPolicyControlPlaneRetriableHotPath.Instance,
+                trace: NoOpTrace.Singleton,
                 cancellationToken: default))
             {
                 using (DocumentServiceResponse documentServiceResponse =
@@ -513,11 +521,6 @@ namespace Microsoft.Azure.Cosmos.Routing
                     return documentServiceResponse.GetResource<FeedResource<Address>>();
                 }
             }
-        }
-
-        public void Dispose()
-        {
-            GC.SuppressFinalize(this);
         }
 
         internal Tuple<PartitionKeyRangeIdentity, PartitionAddressInformation> ToPartitionAddressAndRange(string collectionRid, IList<Address> addresses)
@@ -547,13 +550,12 @@ namespace Microsoft.Azure.Cosmos.Routing
                        partitionKeyRangeIdentity.PartitionKeyRangeId,
                        addressInfo.PhysicalUri);
 
-                    this.serverPartitionAddressToPkRangeIdMap.AddOrUpdate(
-                        new ServerKey(new Uri(addressInfo.PhysicalUri)), new HashSet<PartitionKeyRangeIdentity>() { partitionKeyRangeIdentity },
-                        (serverKey, pkRangeIds) =>
-                        {
-                            pkRangeIds.Add(partitionKeyRangeIdentity);
-                            return pkRangeIds;
-                        });
+                    HashSet<PartitionKeyRangeIdentity> pkRangeIdSet = this.serverPartitionAddressToPkRangeIdMap.GetOrAdd(
+                        new ServerKey(new Uri(addressInfo.PhysicalUri)), new HashSet<PartitionKeyRangeIdentity>());
+                    lock (pkRangeIdSet)
+                    {
+                        pkRangeIdSet.Add(partitionKeyRangeIdentity);
+                    }
                 }
             }
 
@@ -583,32 +585,22 @@ namespace Microsoft.Azure.Cosmos.Routing
 
         private static Protocol ProtocolFromString(string protocol)
         {
-            switch (protocol.ToLowerInvariant())
+            return (protocol.ToLowerInvariant()) switch
             {
-                case RuntimeConstants.Protocols.HTTPS:
-                    return Protocol.Https;
-
-                case RuntimeConstants.Protocols.RNTBD:
-                    return Protocol.Tcp;
-
-                default:
-                    throw new ArgumentOutOfRangeException("protocol");
-            }
+                RuntimeConstants.Protocols.HTTPS => Protocol.Https,
+                RuntimeConstants.Protocols.RNTBD => Protocol.Tcp,
+                _ => throw new ArgumentOutOfRangeException("protocol"),
+            };
         }
 
         private static string ProtocolString(Protocol protocol)
         {
-            switch ((int)protocol)
+            return ((int)protocol) switch
             {
-                case (int)Protocol.Https:
-                    return RuntimeConstants.Protocols.HTTPS;
-
-                case (int)Protocol.Tcp:
-                    return RuntimeConstants.Protocols.RNTBD;
-
-                default:
-                    throw new ArgumentOutOfRangeException("protocol");
-            }
+                (int)Protocol.Https => RuntimeConstants.Protocols.HTTPS,
+                (int)Protocol.Tcp => RuntimeConstants.Protocols.RNTBD,
+                _ => throw new ArgumentOutOfRangeException("protocol"),
+            };
         }
     }
 }

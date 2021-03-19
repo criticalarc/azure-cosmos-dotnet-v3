@@ -8,13 +8,14 @@ namespace Microsoft.Azure.Cosmos
     using System.Diagnostics;
     using System.IO;
     using System.Net.Http;
-    using System.Net.Http.Headers;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.Azure.Cosmos.Diagnostics;
     using Microsoft.Azure.Cosmos.Handlers;
     using Microsoft.Azure.Cosmos.Resource.CosmosExceptions;
     using Microsoft.Azure.Cosmos.Routing;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.Azure.Documents;
 
     internal class ClientContextCore : CosmosClientContext
@@ -66,7 +67,7 @@ namespace Microsoft.Azure.Cosmos
 
             DocumentClient documentClient = new DocumentClient(
                cosmosClient.Endpoint,
-               cosmosClient.AccountKey,
+               cosmosClient.AuthorizationTokenProvider,
                apitype: clientOptions.ApiType,
                sendingRequestEventArgs: clientOptions.SendingRequestEventArgs,
                transportClientHandlerFactory: clientOptions.TransportClientHandlerFactory,
@@ -189,32 +190,65 @@ namespace Microsoft.Azure.Cosmos
         internal override Task<TResult> OperationHelperAsync<TResult>(
             string operationName,
             RequestOptions requestOptions,
-            Func<CosmosDiagnosticsContext, Task<TResult>> task)
+            Func<ITrace, Task<TResult>> task,
+            TraceComponent traceComponent = TraceComponent.Transport,
+            Tracing.TraceLevel traceLevel = Tracing.TraceLevel.Info)
         {
-            CosmosDiagnosticsContext diagnosticsContext = this.CreateDiagnosticContext(
-               operationName,
-               requestOptions);
-
-            if (SynchronizationContext.Current == null)
-            {
-                return this.RunWithDiagnosticsHelperAsync(
-                    diagnosticsContext,
-                    task);
-            }
-
-            return this.RunWithSynchronizationContextAndDiagnosticsHelperAsync(
-                    diagnosticsContext,
-                    task);
+            return SynchronizationContext.Current == null ?
+                this.OperationHelperWithRootTraceAsync(operationName, 
+                                                       requestOptions, 
+                                                       task,
+                                                       traceComponent,
+                                                       traceLevel) :
+                this.OperationHelperWithRootTraceWithSynchronizationContextAsync(operationName, 
+                                                                  requestOptions, 
+                                                                  task,
+                                                                  traceComponent,
+                                                                  traceLevel);
         }
 
-        internal override CosmosDiagnosticsContext CreateDiagnosticContext(
+        private async Task<TResult> OperationHelperWithRootTraceAsync<TResult>(
             string operationName,
-            RequestOptions requestOptions)
+            RequestOptions requestOptions,
+            Func<ITrace, Task<TResult>> task,
+            TraceComponent traceComponent,
+            Tracing.TraceLevel traceLevel)
         {
-            return CosmosDiagnosticsContextCore.Create(
-                operationName,
-                requestOptions,
-                this.UserAgent);
+            bool disableDiagnostics = requestOptions != null && requestOptions.DisablePointOperationDiagnostics;
+
+            using (ITrace trace = disableDiagnostics ? NoOpTrace.Singleton : (ITrace)Tracing.Trace.GetRootTrace(operationName, traceComponent, traceLevel))
+            {
+                return await this.RunWithDiagnosticsHelperAsync(
+                    trace,
+                    task);
+            }
+        }
+
+        private Task<TResult> OperationHelperWithRootTraceWithSynchronizationContextAsync<TResult>(
+            string operationName,
+            RequestOptions requestOptions,
+            Func<ITrace, Task<TResult>> task,
+            TraceComponent traceComponent,
+            Tracing.TraceLevel traceLevel)
+        {
+            Debug.Assert(SynchronizationContext.Current != null, "This should only be used when a SynchronizationContext is specified");
+
+            string syncContextVirtualAddress = SynchronizationContext.Current.ToString();
+
+            // Used on NETFX applications with SynchronizationContext when doing locking calls
+            return Task.Run(async () =>
+            {
+                bool disableDiagnostics = requestOptions != null && requestOptions.DisablePointOperationDiagnostics;
+
+                using (ITrace trace = disableDiagnostics ? NoOpTrace.Singleton : (ITrace)Tracing.Trace.GetRootTrace(operationName, traceComponent, traceLevel))
+                {
+                    trace.AddDatum("Synchronization Context", syncContextVirtualAddress);
+
+                    return await this.RunWithDiagnosticsHelperAsync(
+                        trace,
+                        task);
+                }
+            });
         }
 
         internal override Task<ResponseMessage> ProcessResourceOperationStreamAsync(
@@ -227,7 +261,7 @@ namespace Microsoft.Azure.Cosmos
             string itemId,
             Stream streamPayload,
             Action<RequestMessage> requestEnricher,
-            CosmosDiagnosticsContext diagnosticsContext,
+            ITrace trace,
             CancellationToken cancellationToken)
         {
             this.ThrowIfDisposed();
@@ -250,7 +284,6 @@ namespace Microsoft.Azure.Cosmos
                     partitionKey: partitionKey.Value,
                     itemId: itemId,
                     streamPayload: streamPayload,
-                    diagnosticsContext: diagnosticsContext,
                     cancellationToken: cancellationToken);
             }
 
@@ -260,10 +293,10 @@ namespace Microsoft.Azure.Cosmos
                 operationType: operationType,
                 requestOptions: requestOptions,
                 cosmosContainerCore: cosmosContainerCore,
-                partitionKey: partitionKey,
+                feedRange: partitionKey.HasValue ? new FeedRangePartitionKey(partitionKey.Value) : null,
                 streamPayload: streamPayload,
                 requestEnricher: requestEnricher,
-                diagnosticsContext: diagnosticsContext,
+                trace: trace,
                 cancellationToken: cancellationToken);
         }
 
@@ -273,10 +306,10 @@ namespace Microsoft.Azure.Cosmos
             OperationType operationType,
             RequestOptions requestOptions,
             ContainerInternal cosmosContainerCore,
-            PartitionKey? partitionKey,
+            FeedRange feedRange,
             Stream streamPayload,
             Action<RequestMessage> requestEnricher,
-            CosmosDiagnosticsContext diagnosticsContext,
+            ITrace trace,
             CancellationToken cancellationToken)
         {
             this.ThrowIfDisposed();
@@ -286,10 +319,10 @@ namespace Microsoft.Azure.Cosmos
                 operationType: operationType,
                 requestOptions: requestOptions,
                 cosmosContainerCore: cosmosContainerCore,
-                partitionKey: partitionKey,
+                feedRange: feedRange,
                 streamPayload: streamPayload,
                 requestEnricher: requestEnricher,
-                diagnosticsContext: diagnosticsContext,
+                trace: trace,
                 cancellationToken: cancellationToken);
         }
 
@@ -299,11 +332,11 @@ namespace Microsoft.Azure.Cosmos
             OperationType operationType,
             RequestOptions requestOptions,
             ContainerInternal cosmosContainerCore,
-            PartitionKey? partitionKey,
+            FeedRange feedRange,
             Stream streamPayload,
             Action<RequestMessage> requestEnricher,
             Func<ResponseMessage, T> responseCreator,
-            CosmosDiagnosticsContext diagnosticsScope,
+            ITrace trace,
             CancellationToken cancellationToken)
         {
             this.ThrowIfDisposed();
@@ -314,39 +347,37 @@ namespace Microsoft.Azure.Cosmos
                 operationType: operationType,
                 requestOptions: requestOptions,
                 cosmosContainerCore: cosmosContainerCore,
-                partitionKey: partitionKey,
+                feedRange: feedRange,
                 streamPayload: streamPayload,
                 requestEnricher: requestEnricher,
                 responseCreator: responseCreator,
-                diagnosticsScope: diagnosticsScope,
+                trace: trace,
                 cancellationToken: cancellationToken);
         }
 
         internal override async Task<ContainerProperties> GetCachedContainerPropertiesAsync(
             string containerUri,
+            ITrace trace,
             CancellationToken cancellationToken)
         {
-            this.ThrowIfDisposed();
-            CosmosDiagnosticsContext diagnosticsContext = CosmosDiagnosticsContextCore.Create(requestOptions: null);
-            using (diagnosticsContext.GetOverallScope())
+            using (ITrace childTrace = trace.StartChild("Get Container Properties", TraceComponent.Transport, Tracing.TraceLevel.Info))
             {
-                ClientCollectionCache collectionCache = await this.DocumentClient.GetCollectionCacheAsync();
+                this.ThrowIfDisposed();
+                ClientCollectionCache collectionCache = await this.DocumentClient.GetCollectionCacheAsync(childTrace);
                 try
                 {
-                    using (diagnosticsContext.CreateScope("ContainerCache.ResolveByNameAsync"))
-                    {
-                        return await collectionCache.ResolveByNameAsync(
-                            HttpConstants.Versions.CurrentVersion,
-                            containerUri,
-                            cancellationToken);
-                    }
+                    return await collectionCache.ResolveByNameAsync(
+                        HttpConstants.Versions.CurrentVersion,
+                        containerUri,
+                        forceRefesh: false,
+                        cancellationToken,
+                        childTrace);
                 }
                 catch (DocumentClientException ex)
                 {
-                    throw CosmosExceptionFactory.Create(ex, diagnosticsContext);
+                    throw CosmosExceptionFactory.Create(ex, childTrace);
                 }
             }
-
         }
 
         internal override BatchAsyncContainerExecutor GetExecutorForContainer(ContainerInternal container)
@@ -384,44 +415,19 @@ namespace Microsoft.Azure.Cosmos
             }
         }
 
-        private Task<TResult> RunWithSynchronizationContextAndDiagnosticsHelperAsync<TResult>(
-            CosmosDiagnosticsContext diagnosticsContext,
-            Func<CosmosDiagnosticsContext, Task<TResult>> task)
-        {
-            Debug.Assert(SynchronizationContext.Current != null, "This should only be used when a SynchronizationContext is specified");
-
-            // Used on NETFX applications with SynchronizationContext when doing locking calls
-            IDisposable synchronizationContextScope = diagnosticsContext.CreateScope("SynchronizationContext");
-            return Task.Run(() =>
-            {
-                using (new ActivityScope(Guid.NewGuid()))
-                {
-                    // The goal of synchronizationContextScope is to log how much latency the Task.Run added to the latency.
-                    // Dispose of it here so it only measures the latency added by the Task.Run.
-                    synchronizationContextScope.Dispose();
-                    return this.RunWithDiagnosticsHelperAsync<TResult>(
-                        diagnosticsContext,
-                        task);
-                }
-            });
-        }
-
         private async Task<TResult> RunWithDiagnosticsHelperAsync<TResult>(
-            CosmosDiagnosticsContext diagnosticsContext,
-            Func<CosmosDiagnosticsContext, Task<TResult>> task)
+            ITrace trace,
+            Func<ITrace, Task<TResult>> task)
         {
             using (new ActivityScope(Guid.NewGuid()))
             {
                 try
                 {
-                    using (diagnosticsContext.GetOverallScope())
-                    {
-                        return await task(diagnosticsContext).ConfigureAwait(false);
-                    }
+                    return await task(trace).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException oe) when (!(oe is CosmosOperationCanceledException))
                 {
-                    throw new CosmosOperationCanceledException(oe, diagnosticsContext);
+                    throw new CosmosOperationCanceledException(oe, new CosmosTraceDiagnostics(trace));
                 }
             }
         }
@@ -433,7 +439,6 @@ namespace Microsoft.Azure.Cosmos
             PartitionKey partitionKey,
             string itemId,
             Stream streamPayload,
-            CosmosDiagnosticsContext diagnosticsContext,
             CancellationToken cancellationToken)
         {
             this.ThrowIfDisposed();
@@ -446,7 +451,7 @@ namespace Microsoft.Azure.Cosmos
                 id: itemId,
                 resourceStream: streamPayload,
                 requestOptions: batchItemRequestOptions,
-                diagnosticsContext: diagnosticsContext);
+                cosmosClientContext: this);
 
             TransactionalBatchOperationResult batchOperationResult = await cosmosContainerCore.BatchExecutor.AddAsync(
                 itemBatchOperation,

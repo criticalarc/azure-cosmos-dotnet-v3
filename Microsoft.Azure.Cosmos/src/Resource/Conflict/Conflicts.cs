@@ -24,7 +24,7 @@ namespace Microsoft.Azure.Cosmos
         public abstract Task<ResponseMessage> DeleteAsync(
             ConflictProperties conflict,
             PartitionKey partitionKey,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Reads the item that originated the conflict.
@@ -45,7 +45,7 @@ namespace Microsoft.Azure.Cosmos
         ///         foreach(ConflictProperties item in await conflictIterator.ReadNextAsync())
         ///         {
         ///             MyClass intendedChanges = conflicts.ReadConflictContent<MyClass>(item);
-        ///             ItemResponse<MyClass> currentState = await conflicts.ReadCurrentAsync<MyClass>(intendedChanges.MyPartitionKey, item);
+        ///             ItemResponse<MyClass> currentState = await conflicts.ReadCurrentAsync<MyClass>(item, intendedChanges.MyPartitionKey);
         ///         }
         ///     }
         /// }
@@ -55,7 +55,7 @@ namespace Microsoft.Azure.Cosmos
         public abstract Task<ItemResponse<T>> ReadCurrentAsync<T>(
             ConflictProperties conflict,
             PartitionKey partitionKey,
-            CancellationToken cancellationToken = default(CancellationToken));
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Reads the content of the Conflict resource in the Azure Cosmos DB service.
@@ -74,7 +74,6 @@ namespace Microsoft.Azure.Cosmos
         ///         foreach(ConflictProperties item in await conflictIterator.ReadNextAsync())
         ///         {
         ///             MyClass intendedChanges = conflicts.ReadConflictContent<MyClass>(item);
-        ///             ItemResponse<MyClass> currentState = await conflicts.ReadCurrentAsync<MyClass>(intendedChanges.MyPartitionKey, item);
         ///         }
         ///     }
         /// }

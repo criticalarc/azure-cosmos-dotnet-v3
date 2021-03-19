@@ -23,8 +23,7 @@ namespace Microsoft.Azure.Cosmos
         public override FeedResponse<T> CreateItemFeedResponse<T>(ResponseMessage responseMessage)
         {
             return this.CreateQueryFeedResponseHelper<T>(
-                responseMessage,
-                Documents.ResourceType.Document);
+                responseMessage);
         }
 
         public override FeedResponse<T> CreateChangeFeedUserTypeResponse<T>(
@@ -38,8 +37,7 @@ namespace Microsoft.Azure.Cosmos
             ResponseMessage responseMessage)
         {
             return this.CreateQueryFeedResponseHelper<T>(
-                responseMessage,
-                Documents.ResourceType.Document);
+                responseMessage);
         }
 
         public override FeedResponse<T> CreateQueryFeedResponse<T>(
@@ -47,13 +45,11 @@ namespace Microsoft.Azure.Cosmos
             Documents.ResourceType resourceType)
         {
             return this.CreateQueryFeedResponseHelper<T>(
-                responseMessage,
-                resourceType);
+                responseMessage);
         }
 
         private FeedResponse<T> CreateQueryFeedResponseHelper<T>(
-            ResponseMessage cosmosResponseMessage,
-            Documents.ResourceType resourceType)
+            ResponseMessage cosmosResponseMessage)
         {
             if (cosmosResponseMessage is QueryResponse queryResponse)
             {
@@ -85,7 +81,7 @@ namespace Microsoft.Azure.Cosmos
                     cosmosResponseMessage.StatusCode,
                     cosmosResponseMessage.Headers,
                     item,
-                    cosmosResponseMessage.Diagnostics);
+                    cosmosResponseMessage.Trace);
             });
         }
 
@@ -133,6 +129,22 @@ namespace Microsoft.Azure.Cosmos
                     cosmosResponseMessage.Headers,
                     permissionProperties,
                     permission,
+                    cosmosResponseMessage.Diagnostics);
+            });
+        }
+
+        public override ClientEncryptionKeyResponse CreateClientEncryptionKeyResponse(
+            ClientEncryptionKey clientEncryptionKey,
+            ResponseMessage responseMessage)
+        {
+            return this.ProcessMessage(responseMessage, (cosmosResponseMessage) =>
+            {
+                ClientEncryptionKeyProperties cekProperties = this.ToObjectpublic<ClientEncryptionKeyProperties>(cosmosResponseMessage);
+                return new ClientEncryptionKeyResponse(
+                    cosmosResponseMessage.StatusCode,
+                    cosmosResponseMessage.Headers,
+                    cekProperties,
+                    clientEncryptionKey,
                     cosmosResponseMessage.Diagnostics);
             });
         }
@@ -236,7 +248,7 @@ namespace Microsoft.Azure.Cosmos
         {
             if (responseMessage.Content == null)
             {
-                return default(T);
+                return default;
             }
 
             return this.serializerCore.FromStream<T>(responseMessage.Content);

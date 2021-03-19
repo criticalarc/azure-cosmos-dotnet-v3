@@ -12,7 +12,7 @@ namespace Microsoft.Azure.Cosmos
     /// Type of Patch operation.
     /// </summary>
     [JsonConverter(typeof(StringEnumConverter))]
-#if INTERNAL
+#if PREVIEW
     public
 #else
     internal
@@ -42,5 +42,11 @@ namespace Microsoft.Azure.Cosmos
         /// </summary>
         [EnumMember(Value = PatchConstants.OperationTypeNames.Set)]
         Set,
+
+        /// <summary>
+        /// Operation to increment a value.
+        /// </summary>
+        [EnumMember(Value = PatchConstants.OperationTypeNames.Increment)]
+        Increment,
     }
 }

@@ -12,9 +12,8 @@ namespace Microsoft.Azure.Cosmos.Tests
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos;
     using Microsoft.Azure.Cosmos.Fluent;
-    using Microsoft.Azure.Cosmos.Query;
-    using Microsoft.Azure.Cosmos.Query.Core.ContinuationTokens;
     using Microsoft.Azure.Cosmos.Routing;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Collections;
     using Microsoft.Azure.Documents.Routing;
@@ -24,35 +23,17 @@ namespace Microsoft.Azure.Cosmos.Tests
     internal class MockCosmosUtil
     {
         public static readonly CosmosSerializerCore Serializer = new CosmosSerializerCore();
+        public static readonly string RandomInvalidCorrectlyFormatedAuthKey = "CV60UDtH10CFKR0GxBl/Wg==";
 
         public static CosmosClient CreateMockCosmosClient(
             Action<CosmosClientBuilder> customizeClientBuilder = null,
             Cosmos.ConsistencyLevel? accountConsistencyLevel = null)
         {
-            DocumentClient documentClient;
-            if (accountConsistencyLevel.HasValue)
-            {
-                documentClient = new MockDocumentClient(accountConsistencyLevel.Value);
-            }
-            else
-            {
-                documentClient = new MockDocumentClient();
-            }
-            
-            CosmosClientBuilder cosmosClientBuilder = new CosmosClientBuilder("http://localhost", Guid.NewGuid().ToString());
-            if (customizeClientBuilder != null)
-            {
-                customizeClientBuilder(cosmosClientBuilder);
-            }
+            DocumentClient documentClient = accountConsistencyLevel.HasValue ? new MockDocumentClient(accountConsistencyLevel.Value) : new MockDocumentClient();
+            CosmosClientBuilder cosmosClientBuilder = new CosmosClientBuilder("http://localhost", MockCosmosUtil.RandomInvalidCorrectlyFormatedAuthKey);
+            customizeClientBuilder?.Invoke(cosmosClientBuilder);
 
             return cosmosClientBuilder.Build(documentClient);
-        }
-
-        public static CosmosDiagnosticsContext CreateDiagnosticsContext()
-        {
-            return new CosmosDiagnosticsContextCore(
-                nameof(CreateDiagnosticsContext),
-                "DiagnosticValidatorUserAgentString");
         }
 
         public static Mock<ContainerInternal> CreateMockContainer(
@@ -114,6 +95,7 @@ namespace Microsoft.Azure.Cosmos.Tests
                 It.IsAny<string>(),
                 It.IsAny<Range<string>>(),
                 It.IsAny<List<CompositeContinuationToken>>(),
+                It.IsAny<ITrace>(),
                 It.IsAny<RntbdConstants.RntdbEnumerationDirection>()
             )).Returns(Task.FromResult(new ResolvedRangeInfo(new PartitionKeyRange { Id = partitionRangeKeyId }, new List<CompositeContinuationToken>())));
             partitionRoutingHelperMock.Setup(m => m.TryAddPartitionKeyRangeToContinuationTokenAsync(
@@ -122,6 +104,7 @@ namespace Microsoft.Azure.Cosmos.Tests
                 It.IsAny<IRoutingMapProvider>(),
                 It.IsAny<string>(),
                 It.IsAny<ResolvedRangeInfo>(),
+                It.IsAny<ITrace>(),
                 It.IsAny<RntbdConstants.RntdbEnumerationDirection>()
             )).Returns(Task.FromResult(true));
             return partitionRoutingHelperMock;

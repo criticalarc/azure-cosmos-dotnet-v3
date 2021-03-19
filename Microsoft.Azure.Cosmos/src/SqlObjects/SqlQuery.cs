@@ -20,14 +20,14 @@ namespace Microsoft.Azure.Cosmos.SqlObjects
             SqlFromClause fromClause,
             SqlWhereClause whereClause,
             SqlGroupByClause groupByClause,
-            SqlOrderbyClause orderbyClause,
+            SqlOrderByClause orderByClause,
             SqlOffsetLimitClause offsetLimitClause)
         {
             this.SelectClause = selectClause ?? throw new ArgumentNullException(nameof(selectClause));
             this.FromClause = fromClause;
             this.WhereClause = whereClause;
             this.GroupByClause = groupByClause;
-            this.OrderbyClause = orderbyClause;
+            this.OrderByClause = orderByClause;
             this.OffsetLimitClause = offsetLimitClause;
         }
 
@@ -39,28 +39,40 @@ namespace Microsoft.Azure.Cosmos.SqlObjects
 
         public SqlGroupByClause GroupByClause { get; }
 
-        public SqlOrderbyClause OrderbyClause { get; }
+        public SqlOrderByClause OrderByClause { get; }
 
         public SqlOffsetLimitClause OffsetLimitClause { get; }
 
-        public override void Accept(SqlObjectVisitor visitor) => visitor.Visit(this);
+        public override void Accept(SqlObjectVisitor visitor)
+        {
+            visitor.Visit(this);
+        }
 
-        public override TResult Accept<TResult>(SqlObjectVisitor<TResult> visitor) => visitor.Visit(this);
+        public override TResult Accept<TResult>(SqlObjectVisitor<TResult> visitor)
+        {
+            return visitor.Visit(this);
+        }
 
-        public override TResult Accept<T, TResult>(SqlObjectVisitor<T, TResult> visitor, T input) => visitor.Visit(this, input);
+        public override TResult Accept<T, TResult>(SqlObjectVisitor<T, TResult> visitor, T input)
+        {
+            return visitor.Visit(this, input);
+        }
 
         public static SqlQuery Create(
             SqlSelectClause selectClause,
             SqlFromClause fromClause,
             SqlWhereClause whereClause,
             SqlGroupByClause groupByClause,
-            SqlOrderbyClause orderByClause,
-            SqlOffsetLimitClause offsetLimitClause) => new SqlQuery(
-                selectClause,
-                fromClause,
-                whereClause,
-                groupByClause,
-                orderByClause,
-                offsetLimitClause);
+            SqlOrderByClause orderByClause,
+            SqlOffsetLimitClause offsetLimitClause)
+        {
+            return new SqlQuery(
+selectClause,
+fromClause,
+whereClause,
+groupByClause,
+orderByClause,
+offsetLimitClause);
+        }
     }
 }
