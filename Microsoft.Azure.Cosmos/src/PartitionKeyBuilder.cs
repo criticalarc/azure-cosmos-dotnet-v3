@@ -4,7 +4,6 @@
 namespace Microsoft.Azure.Cosmos
 {
     using System;
-    using System.Collections;
     using System.Collections.Generic;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Routing;
@@ -12,7 +11,7 @@ namespace Microsoft.Azure.Cosmos
     /// <summary>
     /// Represents a partition key value list in the Azure Cosmos DB service.
     /// </summary>
-#if INTERNAL || SUBPARTITIONING
+#if PREVIEW
     public
 #else
     internal

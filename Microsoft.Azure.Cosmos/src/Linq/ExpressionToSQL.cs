@@ -16,6 +16,7 @@ namespace Microsoft.Azure.Cosmos.Linq
     using System.Reflection;
     using Microsoft.Azure.Cosmos.CosmosElements;
     using Microsoft.Azure.Cosmos.CosmosElements.Numbers;
+    using Microsoft.Azure.Cosmos.Serializer;
     using Microsoft.Azure.Cosmos.Spatial;
     using Microsoft.Azure.Cosmos.SqlObjects;
     using Microsoft.Azure.Documents;
@@ -87,14 +88,14 @@ namespace Microsoft.Azure.Cosmos.Linq
         /// </summary>
         /// <param name="inputExpression">An Expression representing a Query on a IDocumentQuery object.</param>
         /// <param name="parameters">Optional dictionary for parameter name and value</param>
-        /// <param name="serializationOptions">Optional serializer options.</param>
+        /// <param name="linqSerializerOptions">Optional serializer options.</param>
         /// <returns>The corresponding SQL query.</returns>
         public static SqlQuery TranslateQuery(
             Expression inputExpression,
             IDictionary<object, string> parameters,
-            CosmosSerializationOptions serializationOptions)
+            CosmosLinqSerializerOptions linqSerializerOptions)
         {
-            TranslationContext context = new TranslationContext(serializationOptions, parameters);
+            TranslationContext context = new TranslationContext(linqSerializerOptions, parameters);
             ExpressionToSql.Translate(inputExpression, context); // ignore result here
 
             QueryUnderConstruction query = context.currentQuery;
@@ -276,7 +277,7 @@ namespace Microsoft.Azure.Cosmos.Linq
         private static SqlScalarExpression VisitMethodCallScalar(MethodCallExpression methodCallExpression, TranslationContext context)
         {
             // Check if it is a UDF method call
-            if (methodCallExpression.Method.Equals(typeof(UserDefinedFunctionProvider).GetMethod("Invoke")))
+            if (methodCallExpression.Method.Equals(typeof(CosmosLinq).GetMethod("InvokeUserDefinedFunction")))
             {
                 string udfName = ((ConstantExpression)methodCallExpression.Arguments[0]).Value as string;
                 if (string.IsNullOrEmpty(udfName))
@@ -768,7 +769,7 @@ namespace Microsoft.Azure.Cosmos.Linq
         private static SqlScalarExpression VisitMemberAccess(MemberExpression inputExpression, TranslationContext context)
         {
             SqlScalarExpression memberExpression = ExpressionToSql.VisitScalarExpression(inputExpression.Expression, context);
-            string memberName = inputExpression.Member.GetMemberName(context?.serializationOptions);
+            string memberName = inputExpression.Member.GetMemberName(context?.linqSerializerOptions);
 
             // if expression is nullable
             if (inputExpression.Expression.Type.IsNullable())
@@ -815,7 +816,7 @@ namespace Microsoft.Azure.Cosmos.Linq
         private static SqlObjectProperty VisitMemberAssignment(MemberAssignment inputExpression, TranslationContext context)
         {
             SqlScalarExpression assign = ExpressionToSql.VisitScalarExpression(inputExpression.Expression, context);
-            string memberName = inputExpression.Member.GetMemberName(context?.serializationOptions);
+            string memberName = inputExpression.Member.GetMemberName(context?.linqSerializerOptions);
             SqlPropertyName propName = SqlPropertyName.Create(memberName);
             SqlObjectProperty prop = SqlObjectProperty.Create(propName, assign);
             return prop;
@@ -857,7 +858,7 @@ namespace Microsoft.Azure.Cosmos.Linq
                 MemberInfo member = members[i];
                 SqlScalarExpression value = ExpressionToSql.VisitScalarExpression(arg, context);
 
-                string memberName = member.GetMemberName(context?.serializationOptions);
+                string memberName = member.GetMemberName(context?.linqSerializerOptions);
                 SqlPropertyName propName = SqlPropertyName.Create(memberName);
                 SqlObjectProperty prop = SqlObjectProperty.Create(propName, value);
                 result[i] = prop;
@@ -1159,25 +1160,25 @@ namespace Microsoft.Azure.Cosmos.Linq
                     }
                 case LinqMethods.OrderBy:
                     {
-                        SqlOrderbyClause orderBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, false, context);
+                        SqlOrderByClause orderBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, false, context);
                         context.currentQuery = context.currentQuery.AddOrderByClause(orderBy, context);
                         break;
                     }
                 case LinqMethods.OrderByDescending:
                     {
-                        SqlOrderbyClause orderBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, true, context);
+                        SqlOrderByClause orderBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, true, context);
                         context.currentQuery = context.currentQuery.AddOrderByClause(orderBy, context);
                         break;
                     }
                 case LinqMethods.ThenBy:
                     {
-                        SqlOrderbyClause thenBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, false, context);
+                        SqlOrderByClause thenBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, false, context);
                         context.currentQuery = context.currentQuery.UpdateOrderByClause(thenBy, context);
                         break;
                     }
                 case LinqMethods.ThenByDescending:
                     {
-                        SqlOrderbyClause thenBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, true, context);
+                        SqlOrderByClause thenBy = ExpressionToSql.VisitOrderBy(inputExpression.Arguments, true, context);
                         context.currentQuery = context.currentQuery.UpdateOrderByClause(thenBy, context);
                         break;
                     }
@@ -1633,7 +1634,7 @@ namespace Microsoft.Azure.Cosmos.Linq
             return collection;
         }
 
-        private static SqlOrderbyClause VisitOrderBy(ReadOnlyCollection<Expression> arguments, bool isDescending, TranslationContext context)
+        private static SqlOrderByClause VisitOrderBy(ReadOnlyCollection<Expression> arguments, bool isDescending, TranslationContext context)
         {
             if (arguments.Count != 2)
             {
@@ -1643,7 +1644,7 @@ namespace Microsoft.Azure.Cosmos.Linq
             LambdaExpression lambda = Utilities.GetLambda(arguments[1]);
             SqlScalarExpression sqlfunc = ExpressionToSql.VisitScalarExpression(lambda, context);
             SqlOrderByItem orderByItem = SqlOrderByItem.Create(sqlfunc, isDescending);
-            SqlOrderbyClause orderby = SqlOrderbyClause.Create(new SqlOrderByItem[] { orderByItem });
+            SqlOrderByClause orderby = SqlOrderByClause.Create(new SqlOrderByItem[] { orderByItem });
             return orderby;
         }
 

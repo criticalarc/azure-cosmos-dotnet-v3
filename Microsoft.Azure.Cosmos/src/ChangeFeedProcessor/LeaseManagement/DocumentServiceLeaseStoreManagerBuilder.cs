@@ -14,51 +14,94 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.LeaseManagement
     /// </summary>
     internal class DocumentServiceLeaseStoreManagerBuilder
     {
-        private DocumentServiceLeaseStoreManagerOptions options = new DocumentServiceLeaseStoreManagerOptions();
-        private Container container;
+        public static async Task<DocumentServiceLeaseStoreManager> InitializeAsync(
+            ContainerInternal monitoredContainer,
+            ContainerInternal leaseContainer,
+            string leaseContainerPrefix,
+            string instanceName)
+        {
+            ContainerResponse cosmosContainerResponse = await leaseContainer.ReadContainerAsync().ConfigureAwait(false);
+            ContainerProperties containerProperties = cosmosContainerResponse.Resource;
+
+            bool isPartitioned =
+                containerProperties.PartitionKey != null &&
+                containerProperties.PartitionKey.Paths != null &&
+                containerProperties.PartitionKey.Paths.Count > 0;
+            bool isMigratedFixed = containerProperties.PartitionKey?.IsSystemKey == true;
+            if (isPartitioned
+                && !isMigratedFixed
+                && (containerProperties.PartitionKey.Paths.Count != 1 || containerProperties.PartitionKey.Paths[0] != "/id"))
+            {
+                throw new ArgumentException("The lease collection, if partitioned, must have partition key equal to id.");
+            }
+
+            RequestOptionsFactory requestOptionsFactory = isPartitioned && !isMigratedFixed ?
+                (RequestOptionsFactory)new PartitionedByIdCollectionRequestOptionsFactory() :
+                (RequestOptionsFactory)new SinglePartitionRequestOptionsFactory();
+
+            DocumentServiceLeaseStoreManagerBuilder leaseStoreManagerBuilder = new DocumentServiceLeaseStoreManagerBuilder()
+                .WithLeasePrefix(leaseContainerPrefix)
+                .WithMonitoredContainer(monitoredContainer)
+                .WithLeaseContainer(leaseContainer)
+                .WithRequestOptionsFactory(requestOptionsFactory)
+                .WithHostName(instanceName);
+
+            return leaseStoreManagerBuilder.Build();
+        }
+
+        private readonly DocumentServiceLeaseStoreManagerOptions options = new DocumentServiceLeaseStoreManagerOptions();
+        private ContainerInternal monitoredContainer;
+        private ContainerInternal leaseContainer;
         private RequestOptionsFactory requestOptionsFactory;
 
-        public DocumentServiceLeaseStoreManagerBuilder WithLeaseContainer(Container leaseContainer)
+        private DocumentServiceLeaseStoreManagerBuilder WithMonitoredContainer(ContainerInternal monitoredContainer)
         {
-            if (leaseContainer == null) throw new ArgumentNullException(nameof(leaseContainer));
-
-            this.container = leaseContainer;
+            this.monitoredContainer = monitoredContainer ?? throw new ArgumentNullException(nameof(leaseContainer));
             return this;
         }
 
-        public DocumentServiceLeaseStoreManagerBuilder WithLeasePrefix(string leasePrefix)
+        private DocumentServiceLeaseStoreManagerBuilder WithLeaseContainer(ContainerInternal leaseContainer)
         {
-            if (leasePrefix == null) throw new ArgumentNullException(nameof(leasePrefix));
-
-            this.options.ContainerNamePrefix = leasePrefix;
+            this.leaseContainer = leaseContainer ?? throw new ArgumentNullException(nameof(leaseContainer));
             return this;
         }
 
-        public DocumentServiceLeaseStoreManagerBuilder WithRequestOptionsFactory(RequestOptionsFactory requestOptionsFactory)
+        private DocumentServiceLeaseStoreManagerBuilder WithLeasePrefix(string leasePrefix)
         {
-            if (requestOptionsFactory == null) throw new ArgumentNullException(nameof(requestOptionsFactory));
-
-            this.requestOptionsFactory = requestOptionsFactory;
+            this.options.ContainerNamePrefix = leasePrefix ?? throw new ArgumentNullException(nameof(leasePrefix));
             return this;
         }
 
-        public DocumentServiceLeaseStoreManagerBuilder WithHostName(string hostName)
+        private DocumentServiceLeaseStoreManagerBuilder WithRequestOptionsFactory(RequestOptionsFactory requestOptionsFactory)
         {
-            if (hostName == null) throw new ArgumentNullException(nameof(hostName));
-
-            this.options.HostName = hostName;
+            this.requestOptionsFactory = requestOptionsFactory ?? throw new ArgumentNullException(nameof(requestOptionsFactory));
             return this;
         }
 
-        public Task<DocumentServiceLeaseStoreManager> BuildAsync()
+        private DocumentServiceLeaseStoreManagerBuilder WithHostName(string hostName)
         {
-            if (this.container == null)
-                throw new InvalidOperationException(nameof(this.container) + " was not specified");
+            this.options.HostName = hostName ?? throw new ArgumentNullException(nameof(hostName));
+            return this;
+        }
+
+        private DocumentServiceLeaseStoreManager Build()
+        {
+            if (this.monitoredContainer == null)
+            {
+                throw new InvalidOperationException(nameof(this.monitoredContainer) + " was not specified");
+            }
+
+            if (this.leaseContainer == null)
+            {
+                throw new InvalidOperationException(nameof(this.leaseContainer) + " was not specified");
+            }
+
             if (this.requestOptionsFactory == null)
+            {
                 throw new InvalidOperationException(nameof(this.requestOptionsFactory) + " was not specified");
+            }
 
-            var leaseStoreManager = new DocumentServiceLeaseStoreManagerCosmos(this.options, this.container, this.requestOptionsFactory);
-            return Task.FromResult<DocumentServiceLeaseStoreManager>(leaseStoreManager);
+            return new DocumentServiceLeaseStoreManagerCosmos(this.options, this.monitoredContainer, this.leaseContainer, this.requestOptionsFactory);
         }
     }
 }

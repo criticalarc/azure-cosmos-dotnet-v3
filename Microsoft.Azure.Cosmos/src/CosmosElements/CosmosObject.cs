@@ -8,10 +8,9 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Linq;
     using Microsoft.Azure.Cosmos.Json;
-    using Microsoft.Azure.Cosmos.Query.Core.ExecutionComponent.Distinct;
     using Microsoft.Azure.Cosmos.Query.Core.Monads;
+    using Microsoft.Azure.Cosmos.Query.Core.Pipeline.Distinct;
 
 #if INTERNAL
 #pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
@@ -31,9 +30,13 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
         {
         }
 
-        public abstract IEnumerable<string> Keys { get; }
+        public abstract KeyCollection Keys { get; }
 
-        public abstract IEnumerable<CosmosElement> Values { get; }
+        IEnumerable<string> IReadOnlyDictionary<string, CosmosElement>.Keys => this.Keys;
+
+        public abstract ValueCollection Values { get; }
+
+        IEnumerable<CosmosElement> IReadOnlyDictionary<string, CosmosElement>.Values => this.Values;
 
         public abstract int Count { get; }
 
@@ -43,11 +46,20 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
 
         public abstract bool TryGetValue(string key, out CosmosElement value);
 
-        public override void Accept(ICosmosElementVisitor cosmosElementVisitor) => cosmosElementVisitor.Visit(this);
+        public override void Accept(ICosmosElementVisitor cosmosElementVisitor)
+        {
+            cosmosElementVisitor.Visit(this);
+        }
 
-        public override TResult Accept<TResult>(ICosmosElementVisitor<TResult> cosmosElementVisitor) => cosmosElementVisitor.Visit(this);
+        public override TResult Accept<TResult>(ICosmosElementVisitor<TResult> cosmosElementVisitor)
+        {
+            return cosmosElementVisitor.Visit(this);
+        }
 
-        public override TResult Accept<TArg, TResult>(ICosmosElementVisitor<TArg, TResult> cosmosElementVisitor, TArg input) => cosmosElementVisitor.Visit(this, input);
+        public override TResult Accept<TArg, TResult>(ICosmosElementVisitor<TArg, TResult> cosmosElementVisitor, TArg input)
+        {
+            return cosmosElementVisitor.Visit(this, input);
+        }
 
         public bool TryGetValue<TCosmosElement>(string key, out TCosmosElement typedCosmosElement)
             where TCosmosElement : CosmosElement
@@ -72,11 +84,16 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
             return true;
         }
 
-        public abstract IEnumerator<KeyValuePair<string, CosmosElement>> GetEnumerator();
+        public abstract Enumerator GetEnumerator();
 
         IEnumerator IEnumerable.GetEnumerator() => this.GetEnumerator();
 
-        public override bool Equals(CosmosElement cosmosElement) => cosmosElement is CosmosObject cosmosObject && this.Equals(cosmosObject);
+        IEnumerator<KeyValuePair<string, CosmosElement>> IEnumerable<KeyValuePair<string, CosmosElement>>.GetEnumerator() => this.GetEnumerator();
+
+        public override bool Equals(CosmosElement cosmosElement)
+        {
+            return cosmosElement is CosmosObject cosmosObject && this.Equals(cosmosObject);
+        }
 
         public bool Equals(CosmosObject cosmosObject)
         {
@@ -135,29 +152,155 @@ namespace Microsoft.Azure.Cosmos.CosmosElements
 
         public static CosmosObject Create(
             IJsonNavigator jsonNavigator,
-            IJsonNavigatorNode jsonNavigatorNode) => new LazyCosmosObject(jsonNavigator, jsonNavigatorNode);
+            IJsonNavigatorNode jsonNavigatorNode)
+        {
+            return new LazyCosmosObject(jsonNavigator, jsonNavigatorNode);
+        }
 
-        public static CosmosObject Create(IReadOnlyDictionary<string, CosmosElement> dictionary) => new EagerCosmosObject(dictionary.ToList());
+        public static CosmosObject Create(IReadOnlyDictionary<string, CosmosElement> dictionary)
+        {
+            return new EagerCosmosObject(dictionary);
+        }
 
-        public static CosmosObject Create(IReadOnlyList<KeyValuePair<string, CosmosElement>> properties) => new EagerCosmosObject(properties);
+        public static new CosmosObject CreateFromBuffer(ReadOnlyMemory<byte> buffer)
+        {
+            return CosmosElement.CreateFromBuffer<CosmosObject>(buffer);
+        }
 
-        public static new CosmosObject CreateFromBuffer(ReadOnlyMemory<byte> buffer) => CosmosElement.CreateFromBuffer<CosmosObject>(buffer);
-
-        public static new CosmosObject Parse(string json) => CosmosElement.Parse<CosmosObject>(json);
+        public static new CosmosObject Parse(string json)
+        {
+            return CosmosElement.Parse<CosmosObject>(json);
+        }
 
         public static bool TryCreateFromBuffer(
             ReadOnlyMemory<byte> buffer,
-            out CosmosObject cosmosObject) => CosmosElement.TryCreateFromBuffer<CosmosObject>(buffer, out cosmosObject);
+            out CosmosObject cosmosObject)
+        {
+            return CosmosElement.TryCreateFromBuffer<CosmosObject>(buffer, out cosmosObject);
+        }
 
         public static bool TryParse(
             string json,
-            out CosmosObject cosmosObject) => CosmosElement.TryParse<CosmosObject>(json, out cosmosObject);
+            out CosmosObject cosmosObject)
+        {
+            return CosmosElement.TryParse<CosmosObject>(json, out cosmosObject);
+        }
 
         public static new class Monadic
         {
-            public static TryCatch<CosmosObject> CreateFromBuffer(ReadOnlyMemory<byte> buffer) => CosmosElement.Monadic.CreateFromBuffer<CosmosObject>(buffer);
+            public static TryCatch<CosmosObject> CreateFromBuffer(ReadOnlyMemory<byte> buffer)
+            {
+                return CosmosElement.Monadic.CreateFromBuffer<CosmosObject>(buffer);
+            }
 
-            public static TryCatch<CosmosObject> Parse(string json) => CosmosElement.Monadic.Parse<CosmosObject>(json);
+            public static TryCatch<CosmosObject> Parse(string json)
+            {
+                return CosmosElement.Monadic.Parse<CosmosObject>(json);
+            }
+        }
+
+        public struct Enumerator : IEnumerator<KeyValuePair<string, CosmosElement>>
+        {
+            private Dictionary<string, CosmosElement>.Enumerator innerEnumerator;
+
+            internal Enumerator(Dictionary<string, CosmosElement>.Enumerator innerEnumerator)
+            {
+                this.innerEnumerator = innerEnumerator;
+            }
+
+            public KeyValuePair<string, CosmosElement> Current => this.innerEnumerator.Current;
+
+            object IEnumerator.Current => this.innerEnumerator.Current;
+
+            public void Dispose() => this.innerEnumerator.Dispose();
+
+            public bool MoveNext() => this.innerEnumerator.MoveNext();
+
+            public void Reset()
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        public struct KeyCollection : IEnumerable<string>
+        {
+            private Dictionary<string, CosmosElement>.KeyCollection innerCollection;
+
+            internal KeyCollection(Dictionary<string, CosmosElement>.KeyCollection innerCollection)
+            {
+                this.innerCollection = innerCollection;
+            }
+
+            public Enumerator GetEnumerator() => new Enumerator(this.innerCollection.GetEnumerator());
+
+            IEnumerator<string> IEnumerable<string>.GetEnumerator() => this.GetEnumerator();
+
+            IEnumerator IEnumerable.GetEnumerator() => this.GetEnumerator();
+
+            public struct Enumerator : IEnumerator<string>
+            {
+                private Dictionary<string, CosmosElement>.KeyCollection.Enumerator innerEnumerator;
+
+                internal Enumerator(Dictionary<string, CosmosElement>.KeyCollection.Enumerator innerEnumerator)
+                {
+                    this.innerEnumerator = innerEnumerator;
+                }
+
+                public string Current => this.innerEnumerator.Current;
+
+                object IEnumerator.Current => this.innerEnumerator.Current;
+
+                public void Dispose() => this.innerEnumerator.Dispose();
+
+                public bool MoveNext()
+                {
+                    return this.innerEnumerator.MoveNext();
+                }
+
+                public void Reset()
+                {
+                    throw new NotImplementedException();
+                }
+            }
+        }
+
+        public struct ValueCollection : IEnumerable<CosmosElement>
+        {
+            private Dictionary<string, CosmosElement>.ValueCollection innerCollection;
+
+            internal ValueCollection(Dictionary<string, CosmosElement>.ValueCollection innerCollection)
+            {
+                this.innerCollection = innerCollection;
+            }
+
+            public Enumerator GetEnumerator() => new Enumerator(this.innerCollection.GetEnumerator());
+
+            IEnumerator<CosmosElement> IEnumerable<CosmosElement>.GetEnumerator() => this.GetEnumerator();
+
+            IEnumerator IEnumerable.GetEnumerator() => this.GetEnumerator();
+
+            public struct Enumerator : IEnumerator<CosmosElement>
+            {
+                private Dictionary<string, CosmosElement>.ValueCollection.Enumerator innerEnumerator;
+
+                internal Enumerator(Dictionary<string, CosmosElement>.ValueCollection.Enumerator innerEnumerator)
+                {
+                    this.innerEnumerator = innerEnumerator;
+                }
+
+                public CosmosElement Current => this.innerEnumerator.Current;
+
+                object IEnumerator.Current => this.innerEnumerator.Current;
+
+                public void Dispose() => this.innerEnumerator.Dispose();
+
+                public bool MoveNext() => this.innerEnumerator.MoveNext();
+
+                public void Reset()
+                {
+                    throw new NotImplementedException();
+                }
+            }
         }
     }
 #if INTERNAL

@@ -42,23 +42,23 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.LeaseManagement
             return ownedLeases;
         }
 
-        private async Task<IReadOnlyList<DocumentServiceLeaseCore>> ListDocumentsAsync(string prefix)
+        private async Task<IReadOnlyList<DocumentServiceLease>> ListDocumentsAsync(string prefix)
         {
             if (string.IsNullOrEmpty(prefix))
                 throw new ArgumentException("Prefix must be non-empty string", nameof(prefix));
 
-            FeedIterator iterator = this.container.GetItemQueryStreamIterator(
+            using FeedIterator iterator = this.container.GetItemQueryStreamIterator(
                 "SELECT * FROM c WHERE STARTSWITH(c.id, '" + prefix + "')",
                 continuationToken: null,
                 requestOptions: queryRequestOptions);
 
-            List<DocumentServiceLeaseCore> leases = new List<DocumentServiceLeaseCore>();
+            List<DocumentServiceLease> leases = new List<DocumentServiceLease>();
             while (iterator.HasMoreResults)
             {
                 using (ResponseMessage responseMessage = await iterator.ReadNextAsync().ConfigureAwait(false))
                 {
                     responseMessage.EnsureSuccessStatusCode();
-                    leases.AddRange(CosmosFeedResponseSerializer.FromFeedResponseStream<DocumentServiceLeaseCore>(
+                    leases.AddRange(CosmosFeedResponseSerializer.FromFeedResponseStream<DocumentServiceLease>(
                         CosmosContainerExtensions.DefaultJsonSerializer,
                         responseMessage.Content));
                 }   

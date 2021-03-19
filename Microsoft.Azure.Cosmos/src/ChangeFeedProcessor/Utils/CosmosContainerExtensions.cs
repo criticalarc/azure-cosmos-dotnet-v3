@@ -10,7 +10,7 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Utils
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos;
-    using Microsoft.Azure.Cosmos.ChangeFeed.Configuration;
+    using Microsoft.Azure.Cosmos.Tracing;
 
     internal static class CosmosContainerExtensions
     {
@@ -46,7 +46,13 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Utils
                         return null;
                     }
 
-                    return new ItemResponse<T>(response.StatusCode, response.Headers, CosmosContainerExtensions.DefaultJsonSerializer.FromStream<T>(response.Content), response.Diagnostics);
+                    response.EnsureSuccessStatusCode();
+
+                    return new ItemResponse<T>(
+                        response.StatusCode, 
+                        response.Headers, 
+                        CosmosContainerExtensions.DefaultJsonSerializer.FromStream<T>(response.Content), 
+                        response.Trace);
                 }
             }
         }
@@ -63,7 +69,11 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Utils
                 using (ResponseMessage response = await container.ReplaceItemStreamAsync(itemStream, itemId, partitionKey, itemRequestOptions).ConfigureAwait(false))
                 {
                     response.EnsureSuccessStatusCode();
-                    return new ItemResponse<T>(response.StatusCode, response.Headers, CosmosContainerExtensions.DefaultJsonSerializer.FromStream<T>(response.Content), response.Diagnostics);
+                    return new ItemResponse<T>(
+                        response.StatusCode, 
+                        response.Headers, 
+                        CosmosContainerExtensions.DefaultJsonSerializer.FromStream<T>(response.Content), 
+                        response.Trace);
                 }
             }
         }
@@ -93,33 +103,30 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.Utils
             return response.IsSuccessStatusCode;
         }
 
-        public static async Task<string> GetMonitoredContainerRidAsync(
+        public static async Task<string> GetMonitoredDatabaseAndContainerRidAsync(
             this Container monitoredContainer,
-            string suggestedMonitoredRid,
-            CancellationToken cancellationToken = default(CancellationToken))
+            CancellationToken cancellationToken = default)
         {
-            if (!string.IsNullOrEmpty(suggestedMonitoredRid))
-            {
-                return suggestedMonitoredRid;
-            }
-
-            string containerRid = await ((ContainerInternal)monitoredContainer).GetRIDAsync(cancellationToken);
+            string containerRid = await ((ContainerInternal)monitoredContainer).GetCachedRIDAsync(
+                forceRefresh: false,
+                NoOpTrace.Singleton,
+                cancellationToken: cancellationToken);
             string databaseRid = await ((DatabaseInternal)((ContainerInternal)monitoredContainer).Database).GetRIDAsync(cancellationToken);
             return $"{databaseRid}_{containerRid}";
         }
 
         public static string GetLeasePrefix(
             this Container monitoredContainer,
-            ChangeFeedLeaseOptions changeFeedLeaseOptions,
-            string monitoredContainerRid)
+            string leasePrefix,
+            string monitoredDatabaseAndContainerRid)
         {
-            string optionsPrefix = changeFeedLeaseOptions.LeasePrefix ?? string.Empty;
+            string optionsPrefix = leasePrefix ?? string.Empty;
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "{0}{1}_{2}",
                 optionsPrefix,
                 ((ContainerInternal)monitoredContainer).ClientContext.Client.Endpoint.Host,
-                monitoredContainerRid);
+                monitoredDatabaseAndContainerRid);
         }
     }
 }

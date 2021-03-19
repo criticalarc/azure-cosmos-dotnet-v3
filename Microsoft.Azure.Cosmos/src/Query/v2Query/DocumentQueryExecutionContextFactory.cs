@@ -5,14 +5,13 @@ namespace Microsoft.Azure.Cosmos.Query
 {
     using System;
     using System.Collections.Generic;
-    using System.Diagnostics;
-    using System.Globalization;
     using System.Linq.Expressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos;
     using Microsoft.Azure.Cosmos.Common;
     using Microsoft.Azure.Cosmos.Query.Core.QueryPlan;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.Azure.Documents;
 
     /// <summary>
@@ -44,7 +43,7 @@ namespace Microsoft.Azure.Cosmos.Query
                         resourceLink,
                         AuthorizationTokenType.Invalid)) //this request doesnt actually go to server
                 {
-                    collection = await collectionCache.ResolveCollectionAsync(request, token);
+                    collection = await collectionCache.ResolveCollectionAsync(request, token, NoOpTrace.Singleton);
                 }
 
                 if (feedOptions != null && feedOptions.PartitionKey != null && feedOptions.PartitionKey.Equals(Documents.PartitionKey.None))

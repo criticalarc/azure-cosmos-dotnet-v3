@@ -14,9 +14,9 @@ namespace Microsoft.Azure.Cosmos.Routing
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Core.Trace;
     using Microsoft.Azure.Cosmos.Query.Core;
-    using Microsoft.Azure.Cosmos.Query.Core.ContinuationTokens;
     using Microsoft.Azure.Cosmos.Query.Core.Monads;
     using Microsoft.Azure.Cosmos.Query.Core.QueryPlan;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Collections;
     using Microsoft.Azure.Documents.Routing;
@@ -26,7 +26,6 @@ namespace Microsoft.Azure.Cosmos.Routing
     internal class PartitionRoutingHelper
     {
         public static IReadOnlyList<Range<string>> GetProvidedPartitionKeyRanges(
-            Func<string, Exception> createBadRequestException,
             SqlQuerySpec querySpec,
             bool enableCrossPartitionQuery,
             bool parallelizeCrossPartitionQuery,
@@ -55,7 +54,7 @@ namespace Microsoft.Azure.Cosmos.Routing
             TryCatch<PartitionedQueryExecutionInfo> tryGetPartitionQueryExecutionInfo = queryPartitionProvider.TryGetPartitionedQueryExecutionInfo(
                 querySpec: querySpec,
                 partitionKeyDefinition: partitionKeyDefinition,
-                requireFormattableOrderByQuery: VersionUtility.IsLaterThan(clientApiVersion, HttpConstants.Versions.v2016_11_14),
+                requireFormattableOrderByQuery: VersionUtility.IsLaterThan(clientApiVersion, HttpConstants.VersionDates.v2016_11_14),
                 isContinuationExpected: isContinuationExpected,
                 allowNonValueAggregateQuery: false,
                 hasLogicalPartitionKey: hasLogicalPartitionKey);
@@ -175,6 +174,7 @@ namespace Microsoft.Azure.Cosmos.Routing
         /// <param name="collectionRid"></param>
         /// <param name="rangeFromContinuationToken"></param>
         /// <param name="suppliedTokens"></param>
+        /// <param name="trace"></param>
         /// <param name="direction"></param>
         /// <returns>null if collection with specified <paramref name="collectionRid"/> doesn't exist, which potentially means
         /// that collection was resolved to outdated Rid by name. Also null can be returned if <paramref name="rangeFromContinuationToken"/>
@@ -186,6 +186,7 @@ namespace Microsoft.Azure.Cosmos.Routing
             string collectionRid,
             Range<string> rangeFromContinuationToken,
             List<CompositeContinuationToken> suppliedTokens,
+            ITrace trace,
             RntdbEnumerationDirection direction = RntdbEnumerationDirection.Forward)
         {
             // For queries such as "SELECT * FROM root WHERE false", 
@@ -195,7 +196,8 @@ namespace Microsoft.Azure.Cosmos.Routing
                 return new ResolvedRangeInfo(
                     await routingMapProvider.TryGetRangeByEffectivePartitionKeyAsync(
                         collectionRid,
-                        PartitionKeyInternal.MinimumInclusiveEffectivePartitionKey),
+                        PartitionKeyInternal.MinimumInclusiveEffectivePartitionKey,
+                        trace),
                     suppliedTokens);
             }
 
@@ -204,7 +206,10 @@ namespace Microsoft.Azure.Cosmos.Routing
             {
                 if (direction == RntdbEnumerationDirection.Reverse)
                 {
-                    IReadOnlyList<PartitionKeyRange> partitionKeyRanges = await routingMapProvider.TryGetOverlappingRangesAsync(collectionRid, providedPartitionKeyRanges.Single());
+                    IReadOnlyList<PartitionKeyRange> partitionKeyRanges = await routingMapProvider.TryGetOverlappingRangesAsync(
+                        collectionRid, 
+                        providedPartitionKeyRanges.Single(),
+                        trace);
                     PartitionKeyRange lastPartitionKeyRange = partitionKeyRanges[partitionKeyRanges.Count - 1];
 
                     return new ResolvedRangeInfo(lastPartitionKeyRange, suppliedTokens);
@@ -215,11 +220,11 @@ namespace Microsoft.Azure.Cosmos.Routing
                 Range<string>.MinComparer.Instance);
 
                 return new ResolvedRangeInfo(
-                    await routingMapProvider.TryGetRangeByEffectivePartitionKeyAsync(collectionRid, minimumRange.Min),
+                    await routingMapProvider.TryGetRangeByEffectivePartitionKeyAsync(collectionRid, minimumRange.Min, trace),
                     suppliedTokens);
             }
 
-            PartitionKeyRange targetPartitionKeyRange = await routingMapProvider.TryGetRangeByEffectivePartitionKeyAsync(collectionRid, rangeFromContinuationToken.Min);
+            PartitionKeyRange targetPartitionKeyRange = await routingMapProvider.TryGetRangeByEffectivePartitionKeyAsync(collectionRid, rangeFromContinuationToken.Min, trace);
 
             if (targetPartitionKeyRange == null)
             {
@@ -232,6 +237,7 @@ namespace Microsoft.Azure.Cosmos.Routing
                 IReadOnlyList<PartitionKeyRange> replacedRanges = await routingMapProvider.TryGetOverlappingRangesAsync(
                         collectionResourceId: collectionRid,
                         range: rangeFromContinuationToken,
+                        trace: trace,
                         forceRefresh: true);
 
                 if (replacedRanges == null || replacedRanges.Count < 1)
@@ -273,9 +279,16 @@ namespace Microsoft.Azure.Cosmos.Routing
             return new ResolvedRangeInfo(targetPartitionKeyRange, suppliedTokens);
         }
 
-        public static async Task<List<PartitionKeyRange>> GetReplacementRangesAsync(PartitionKeyRange targetRange, IRoutingMapProvider routingMapProvider, string collectionRid)
+        public static async Task<List<PartitionKeyRange>> GetReplacementRangesAsync(PartitionKeyRange targetRange, 
+                                                            IRoutingMapProvider routingMapProvider, 
+                                                            string collectionRid,
+                                                            ITrace trace)
         {
-            return (await routingMapProvider.TryGetOverlappingRangesAsync(collectionRid, targetRange.ToRange(), true)).ToList();
+            return (await routingMapProvider.TryGetOverlappingRangesAsync(
+                collectionRid, 
+                targetRange.ToRange(), 
+                trace, 
+                forceRefresh: true)).ToList();
         }
 
         /// <summary>
@@ -288,6 +301,7 @@ namespace Microsoft.Azure.Cosmos.Routing
             IRoutingMapProvider routingMapProvider,
             string collectionRid,
             ResolvedRangeInfo resolvedRangeInfo,
+            ITrace trace,
             RntdbEnumerationDirection direction = RntdbEnumerationDirection.Forward)
         {
             Debug.Assert(resolvedRangeInfo.ResolvedRange != null, "ResolvedRange can't be null");
@@ -320,7 +334,10 @@ namespace Microsoft.Azure.Cosmos.Routing
                     if (direction == RntdbEnumerationDirection.Reverse)
                     {
                         rangeToUse = PartitionRoutingHelper.MinBefore(
-                            (await routingMapProvider.TryGetOverlappingRangesAsync(collectionRid, providedPartitionKeyRanges.Single())).ToList(),
+                            (await routingMapProvider.TryGetOverlappingRangesAsync(
+                                collectionRid, 
+                                providedPartitionKeyRanges.Single(),
+                                trace)).ToList(),
                             currentRange);
                     }
                     else
@@ -344,7 +361,7 @@ namespace Microsoft.Azure.Cosmos.Routing
                             return true;
                         }
 
-                        PartitionKeyRange nextRange = await routingMapProvider.TryGetRangeByEffectivePartitionKeyAsync(collectionRid, max);
+                        PartitionKeyRange nextRange = await routingMapProvider.TryGetRangeByEffectivePartitionKeyAsync(collectionRid, max, trace);
                         if (nextRange == null)
                         {
                             return false;
@@ -462,7 +479,7 @@ namespace Microsoft.Azure.Cosmos.Routing
             PartitionedQueryExecutionInfo partitionedQueryExecutionInfoueryInfo,
             string clientApiVersion)
         {
-            if (VersionUtility.IsLaterThan(clientApiVersion, HttpConstants.Versions.v2016_07_11))
+            if (VersionUtility.IsLaterThan(clientApiVersion, HttpConstants.VersionDates.v2016_07_11))
             {
                 return partitionedQueryExecutionInfoueryInfo.Version <= Constants.PartitionedQueryExecutionInfo.CurrentVersion;
             }
@@ -472,7 +489,7 @@ namespace Microsoft.Azure.Cosmos.Routing
 
         private static bool IsAggregateSupportedApiVersion(string clientApiVersion)
         {
-            return VersionUtility.IsLaterThan(clientApiVersion, HttpConstants.Versions.v2016_11_14);
+            return VersionUtility.IsLaterThan(clientApiVersion, HttpConstants.VersionDates.v2016_11_14);
         }
 
         private static T Min<T>(IReadOnlyList<T> values, IComparer<T> comparer)

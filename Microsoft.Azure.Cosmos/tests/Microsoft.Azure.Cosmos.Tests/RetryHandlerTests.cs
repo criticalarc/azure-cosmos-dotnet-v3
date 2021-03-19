@@ -22,7 +22,7 @@ namespace Microsoft.Azure.Cosmos.Tests
         [TestMethod]
         public async Task RetryHandlerDoesNotRetryOnSuccess()
         {
-            CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
+            using CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
 
             RetryHandler retryHandler = new RetryHandler(client);
             int handlerCalls = 0;
@@ -46,7 +46,7 @@ namespace Microsoft.Azure.Cosmos.Tests
         [TestMethod]
         public async Task RetryHandlerRetriesOn429()
         {
-            CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
+            using CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
 
             RetryHandler retryHandler = new RetryHandler(client);
             int handlerCalls = 0;
@@ -77,7 +77,7 @@ namespace Microsoft.Azure.Cosmos.Tests
         [ExpectedException(typeof(Exception))]
         public async Task RetryHandlerDoesNotRetryOnException()
         {
-            CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
+            using CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
 
             RetryHandler retryHandler = new RetryHandler(client);
             int handlerCalls = 0;
@@ -105,10 +105,10 @@ namespace Microsoft.Azure.Cosmos.Tests
         [TestMethod]
         public async Task RetryHandlerHttpClientExceptionRefreshesLocations()
         {
-            DocumentClient dc = new MockDocumentClient(RetryHandlerTests.TestUri, "test");
-            CosmosClient client = new CosmosClient(
-                RetryHandlerTests.TestUri.OriginalString, 
-                Guid.NewGuid().ToString(), 
+            using DocumentClient dc = new MockDocumentClient(RetryHandlerTests.TestUri, MockCosmosUtil.RandomInvalidCorrectlyFormatedAuthKey);
+            using CosmosClient client = new CosmosClient(
+                RetryHandlerTests.TestUri.OriginalString,
+                MockCosmosUtil.RandomInvalidCorrectlyFormatedAuthKey, 
                 new CosmosClientOptions(), 
                 dc);
 
@@ -185,7 +185,7 @@ namespace Microsoft.Azure.Cosmos.Tests
                 return TestHandler.ReturnSuccess();
             });
 
-            CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
+            using CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
             RetryHandler retryHandler = new RetryHandler(client);
             retryHandler.InnerHandler = testHandler;
 
@@ -204,7 +204,7 @@ namespace Microsoft.Azure.Cosmos.Tests
         [TestMethod]
         public async Task InvalidPartitionExceptionRetryHandlerDoesNotRetryOnSuccess()
         {
-            CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
+            using CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
 
             NamedCacheRetryHandler retryHandler = new NamedCacheRetryHandler();
             int handlerCalls = 0;
@@ -215,9 +215,15 @@ namespace Microsoft.Azure.Cosmos.Tests
             });
 
             retryHandler.InnerHandler = testHandler;
-            RequestInvokerHandler invoker = new RequestInvokerHandler(client, requestedClientConsistencyLevel: null);
-            invoker.InnerHandler = retryHandler;
-            RequestMessage requestMessage = new RequestMessage(HttpMethod.Get, new Uri("https://dummy.documents.azure.com:443/dbs"));
+            RequestInvokerHandler invoker = new RequestInvokerHandler(
+                client, 
+                requestedClientConsistencyLevel: null)
+            {
+                InnerHandler = retryHandler
+            };
+            RequestMessage requestMessage = new RequestMessage(
+                HttpMethod.Get, 
+                new Uri("https://dummy.documents.azure.com:443/dbs"));
             await invoker.SendAsync(requestMessage, new CancellationToken());
             Assert.AreEqual(expectedHandlerCalls, handlerCalls);
         }
@@ -225,7 +231,7 @@ namespace Microsoft.Azure.Cosmos.Tests
         [TestMethod]
         public async Task InvalidPartitionExceptionRetryHandlerDoesNotRetryOn410()
         {
-            CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
+            using CosmosClient client = MockCosmosUtil.CreateMockCosmosClient();
 
             NamedCacheRetryHandler retryHandler = new NamedCacheRetryHandler();
             int handlerCalls = 0;

@@ -15,13 +15,14 @@ namespace Microsoft.Azure.Cosmos
     internal class ServicePointAccessor
     {
         // WebAssembly detection
-        private static bool IsBrowser = RuntimeInformation.IsOSPlatform(OSPlatform.Create("BROWSER")) || RuntimeInformation.IsOSPlatform(OSPlatform.Create("WEBASSEMBLY"));
+        private static readonly bool IsBrowser = RuntimeInformation.IsOSPlatform(OSPlatform.Create("BROWSER")) || RuntimeInformation.IsOSPlatform(OSPlatform.Create("WEBASSEMBLY"));
 
         private readonly ServicePoint servicePoint;
 
         private ServicePointAccessor(ServicePoint servicePoint)
         {
             this.servicePoint = servicePoint ?? throw new ArgumentNullException(nameof(servicePoint));
+            this.TryDisableUseNagleAlgorithm();
         }
 
         internal static ServicePointAccessor FindServicePoint(Uri endpoint)
@@ -35,13 +36,29 @@ namespace Microsoft.Azure.Cosmos
             set => this.TrySetConnectionLimit(value);
         }
 
+        /// <summary>
+        /// Disable Nagle for HTTP requests.
+        /// This improves latency/throughput for Gateway operations on.net Framework
+        /// </summary>
+        private void TryDisableUseNagleAlgorithm()
+        {
+            try
+            {
+                this.servicePoint.UseNagleAlgorithm = false;
+            }
+            catch (PlatformNotSupportedException)
+            {
+                DefaultTrace.TraceWarning("ServicePoint.set_UseNagleAlgorithm - Platform does not support feature.");
+            }
+        }
+
         private void TrySetConnectionLimit(int connectionLimit)
         {
             if (ServicePointAccessor.IsBrowser)
             {
                 // Workaround for WebAssembly.
                 // WebAssembly currently throws a SynchronizationLockException and not a PlatformNotSupportedException.
-                return; 
+                return;
             }
 
             try

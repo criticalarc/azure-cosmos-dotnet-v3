@@ -4,11 +4,13 @@
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos.Query.Core;
-    using Microsoft.Azure.Cosmos.Query.Core.QueryClient;
     using Microsoft.Azure.Cosmos.Query.Core.QueryPlan;
-    using Microsoft.VisualStudio.TestTools.UnitTesting;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Cosmos.Diagnostics;
+    using Microsoft.Azure.Cosmos.Query.Core.Monads;
+    using Microsoft.Azure.Cosmos.Query.Core.Pipeline;
+    using Microsoft.Azure.Cosmos.Tracing;
+    using Microsoft.Azure.Cosmos.Query.Core.Pipeline.Pagination;
 
     /// <summary>
     /// A helper that forces the SDK to use the gateway or the service interop for the query plan
@@ -45,7 +47,7 @@
             SqlQuerySpec sqlQuerySpec,
             Cosmos.PartitionKey? partitionKey,
             string supportedQueryFeatures,
-            CosmosDiagnosticsContext diagnosticsContext,
+            ITrace trace,
             CancellationToken cancellationToken)
         {
             this.QueryPlanCalls++;
@@ -56,22 +58,22 @@
                 sqlQuerySpec,
                 partitionKey,
                 supportedQueryFeatures,
-                diagnosticsContext,
+                trace,
                 cancellationToken);
         }
 
-        public override Task<QueryResponseCore> ExecuteItemQueryAsync(
+        public override Task<TryCatch<QueryPage>> ExecuteItemQueryAsync(
             string resourceUri,
             ResourceType resourceType,
             OperationType operationType,
             Guid clientQueryCorrelationId,
+            FeedRange feedRange,
             QueryRequestOptions requestOptions,
-            Action<QueryPageDiagnostics> queryPageDiagnostics,
             SqlQuerySpec sqlQuerySpec,
             string continuationToken,
-            PartitionKeyRangeIdentity partitionKeyRange,
             bool isContinuationExpected,
             int pageSize,
+            ITrace trace,
             CancellationToken cancellationToken)
         {
             return base.ExecuteItemQueryAsync(
@@ -80,12 +82,12 @@
                 operationType: operationType,
                 clientQueryCorrelationId: clientQueryCorrelationId,
                 requestOptions: requestOptions,
-                queryPageDiagnostics: queryPageDiagnostics,
                 sqlQuerySpec: sqlQuerySpec,
                 continuationToken: continuationToken,
-                partitionKeyRange: partitionKeyRange,
+                feedRange: feedRange,
                 isContinuationExpected: isContinuationExpected,
                 pageSize: pageSize,
+                trace: trace,
                 cancellationToken: cancellationToken);
         }
     }

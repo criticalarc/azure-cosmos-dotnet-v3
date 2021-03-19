@@ -57,7 +57,11 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedManagement
             try
             {
                 DocumentServiceLease updatedLease = await this.leaseManager.AcquireAsync(lease).ConfigureAwait(false);
-                if (updatedLease != null) lease = updatedLease;
+                if (updatedLease != null)
+                {
+                    lease = updatedLease;
+                }
+
                 DefaultTrace.TraceInformation("Lease with token {0}: acquired", lease.CurrentLeaseToken);
             }
             catch (Exception)
@@ -92,8 +96,7 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedManagement
 
         private async Task RemoveLeaseAsync(DocumentServiceLease lease)
         {
-            TaskCompletionSource<bool> worker;
-            if (!this.currentlyOwnedPartitions.TryRemove(lease.CurrentLeaseToken, out worker))
+            if (!this.currentlyOwnedPartitions.TryRemove(lease.CurrentLeaseToken, out TaskCompletionSource<bool> worker))
             {
                 return;
             }
@@ -121,9 +124,9 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedManagement
             {
                 await partitionSupervisor.RunAsync(this.shutdownCts.Token).ConfigureAwait(false);
             }
-            catch (FeedSplitException ex)
+            catch (FeedRangeGoneException ex)
             {
-                await this.HandleSplitAsync(lease, ex.LastContinuation).ConfigureAwait(false);
+                await this.HandlePartitionGoneAsync(lease, ex.LastContinuation).ConfigureAwait(false);
             }
             catch (TaskCanceledException)
             {
@@ -138,19 +141,23 @@ namespace Microsoft.Azure.Cosmos.ChangeFeed.FeedManagement
             await this.RemoveLeaseAsync(lease).ConfigureAwait(false);
         }
 
-        private async Task HandleSplitAsync(DocumentServiceLease lease, string lastContinuationToken)
+        private async Task HandlePartitionGoneAsync(DocumentServiceLease lease, string lastContinuationToken)
         {
             try
             {
                 lease.ContinuationToken = lastContinuationToken;
-                IEnumerable<DocumentServiceLease> addedLeases = await this.synchronizer.SplitPartitionAsync(lease).ConfigureAwait(false);
+                (IEnumerable<DocumentServiceLease> addedLeases, bool shouldDeleteGoneLease) = await this.synchronizer.HandlePartitionGoneAsync(lease).ConfigureAwait(false);
                 Task[] addLeaseTasks = addedLeases.Select(l =>
                     {
                         l.Properties = lease.Properties;
                         return this.AddOrUpdateLeaseAsync(l);
                     }).ToArray();
 
-                await this.leaseManager.DeleteAsync(lease).ConfigureAwait(false);
+                if (shouldDeleteGoneLease)
+                {
+                    await this.leaseManager.DeleteAsync(lease).ConfigureAwait(false);
+                }
+
                 await Task.WhenAll(addLeaseTasks).ConfigureAwait(false);
             }
             catch (Exception e)

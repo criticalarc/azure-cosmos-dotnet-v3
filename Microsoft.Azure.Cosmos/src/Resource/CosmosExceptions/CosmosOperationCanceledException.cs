@@ -6,7 +6,6 @@ namespace Microsoft.Azure.Cosmos
 {
     using System;
     using System.Collections;
-    using System.Threading;
 
     /// <summary>
     /// The exception that is thrown in a thread upon cancellation of an operation that
@@ -16,15 +15,6 @@ namespace Microsoft.Azure.Cosmos
     public class CosmosOperationCanceledException : OperationCanceledException
     {
         private readonly OperationCanceledException originalException;
-
-        internal CosmosOperationCanceledException(
-            OperationCanceledException originalException,
-            CosmosDiagnosticsContext diagnosticsContext)
-            : this(
-                originalException,
-                diagnosticsContext?.Diagnostics)
-        {
-        }
 
         /// <summary>
         /// Create an instance of CosmosOperationCanceledException
@@ -36,18 +26,8 @@ namespace Microsoft.Azure.Cosmos
             CosmosDiagnostics diagnostics)
             : base(originalException.CancellationToken)
         {
-            if (originalException == null)
-            {
-                throw new ArgumentNullException(nameof(originalException));
-            }
-
-            if (diagnostics == null)
-            {
-                throw new ArgumentNullException(nameof(diagnostics));
-            }
-
-            this.originalException = originalException;
-            this.Diagnostics = diagnostics;
+            this.originalException = originalException ?? throw new ArgumentNullException(nameof(originalException));
+            this.Diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         }
 
         /// <inheritdoc/>
@@ -87,7 +67,7 @@ namespace Microsoft.Azure.Cosmos
         /// <inheritdoc/>
         public override string ToString()
         {
-            return $"{this.originalException.ToString()} {Environment.NewLine}CosmosDiagnostics: {this.Diagnostics.ToString()}";
+            return $"{this.originalException} {Environment.NewLine}CosmosDiagnostics: {this.Diagnostics}";
         }
     }
 }

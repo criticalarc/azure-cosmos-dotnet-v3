@@ -14,7 +14,9 @@ namespace Microsoft.Azure.Cosmos.Tests
     using System.Threading.Tasks;
     using Microsoft.Azure.Cosmos;
     using Microsoft.Azure.Cosmos.Common;
+    using Microsoft.Azure.Cosmos.Query.Core.QueryPlan;
     using Microsoft.Azure.Cosmos.Routing;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.Azure.Documents;
     using Microsoft.Azure.Documents.Collections;
     using Moq;
@@ -28,7 +30,7 @@ namespace Microsoft.Azure.Cosmos.Tests
         private Cosmos.ConsistencyLevel accountConsistencyLevel;
 
         public MockDocumentClient()
-            : base(new Uri("http://localhost"), null)
+            : base(new Uri("http://localhost"), MockCosmosUtil.RandomInvalidCorrectlyFormatedAuthKey)
         {
             this.Init();
         }
@@ -52,12 +54,6 @@ namespace Microsoft.Azure.Cosmos.Tests
             this.Init();
         }
 
-        public MockDocumentClient(Uri serviceEndpoint, IList<Documents.Permission> permissionFeed, ConnectionPolicy connectionPolicy = null, Documents.ConsistencyLevel? desiredConsistencyLevel = null)
-            : base(serviceEndpoint, permissionFeed, connectionPolicy, desiredConsistencyLevel)
-        {
-            this.Init();
-        }
-
         public MockDocumentClient(Uri serviceEndpoint, SecureString authKey, JsonSerializerSettings serializerSettings, ConnectionPolicy connectionPolicy = null, Documents.ConsistencyLevel? desiredConsistencyLevel = null)
             : base(serviceEndpoint, authKey, serializerSettings, connectionPolicy, desiredConsistencyLevel)
         {
@@ -66,12 +62,6 @@ namespace Microsoft.Azure.Cosmos.Tests
 
         public MockDocumentClient(Uri serviceEndpoint, string authKeyOrResourceToken, JsonSerializerSettings serializerSettings, ConnectionPolicy connectionPolicy = null, Documents.ConsistencyLevel? desiredConsistencyLevel = null)
             : base(serviceEndpoint, authKeyOrResourceToken, serializerSettings, connectionPolicy, desiredConsistencyLevel)
-        {
-            this.Init();
-        }
-
-        internal MockDocumentClient(Uri serviceEndpoint, IList<ResourceToken> resourceTokens, ConnectionPolicy connectionPolicy = null, Documents.ConsistencyLevel? desiredConsistencyLevel = null)
-            : base(serviceEndpoint, resourceTokens, connectionPolicy, desiredConsistencyLevel)
         {
             this.Init();
         }
@@ -102,7 +92,7 @@ namespace Microsoft.Azure.Cosmos.Tests
             this.Init();
         }
 
-        internal override async Task EnsureValidClientAsync()
+        internal override async Task EnsureValidClientAsync(ITrace trace)
         {
             await Task.Yield();
         }
@@ -116,20 +106,23 @@ namespace Microsoft.Azure.Cosmos.Tests
 
         internal override IRetryPolicyFactory ResetSessionTokenRetryPolicy => new RetryPolicy(this.globalEndpointManager.Object, new ConnectionPolicy());
 
-        internal override Task<ClientCollectionCache> GetCollectionCacheAsync()
+        internal override Task<ClientCollectionCache> GetCollectionCacheAsync(ITrace trace)
         {
             return Task.FromResult(this.collectionCache.Object);
         }
 
-        internal override Task<PartitionKeyRangeCache> GetPartitionKeyRangeCacheAsync()
+        internal override Task<PartitionKeyRangeCache> GetPartitionKeyRangeCacheAsync(ITrace trace)
         {
             return Task.FromResult(this.partitionKeyRangeCache.Object);
         }
 
-        internal override Task<IDictionary<string, object>> GetQueryEngineConfigurationAsync()
+        internal override Task<QueryPartitionProvider> QueryPartitionProvider
         {
-            Dictionary<string, object> queryEngineConfiguration = JsonConvert.DeserializeObject< Dictionary<string, object>>("{\"maxSqlQueryInputLength\":262144,\"maxJoinsPerSqlQuery\":5,\"maxLogicalAndPerSqlQuery\":500,\"maxLogicalOrPerSqlQuery\":500,\"maxUdfRefPerSqlQuery\":10,\"maxInExpressionItemsCount\":16000,\"queryMaxInMemorySortDocumentCount\":500,\"maxQueryRequestTimeoutFraction\":0.9,\"sqlAllowNonFiniteNumbers\":false,\"sqlAllowAggregateFunctions\":true,\"sqlAllowSubQuery\":true,\"sqlAllowScalarSubQuery\":true,\"allowNewKeywords\":true,\"sqlAllowLike\":false,\"sqlAllowGroupByClause\":false,\"maxSpatialQueryCells\":12,\"spatialMaxGeometryPointCount\":256,\"sqlAllowTop\":true,\"enableSpatialIndexing\":true}");
-            return Task.FromResult((IDictionary<string, object>)queryEngineConfiguration);
+            get
+            {
+                return Task.FromResult(new QueryPartitionProvider(
+JsonConvert.DeserializeObject<Dictionary<string, object>>("{\"maxSqlQueryInputLength\":262144,\"maxJoinsPerSqlQuery\":5,\"maxLogicalAndPerSqlQuery\":500,\"maxLogicalOrPerSqlQuery\":500,\"maxUdfRefPerSqlQuery\":10,\"maxInExpressionItemsCount\":16000,\"queryMaxInMemorySortDocumentCount\":500,\"maxQueryRequestTimeoutFraction\":0.9,\"sqlAllowNonFiniteNumbers\":false,\"sqlAllowAggregateFunctions\":true,\"sqlAllowSubQuery\":true,\"sqlAllowScalarSubQuery\":true,\"allowNewKeywords\":true,\"sqlAllowLike\":false,\"sqlAllowGroupByClause\":false,\"maxSpatialQueryCells\":12,\"spatialMaxGeometryPointCount\":256,\"sqlAllowTop\":true,\"enableSpatialIndexing\":true}")));
+            }
         }
 
         ValueTask<(string token, string payload)> IAuthorizationTokenProvider.GetUserAuthorizationAsync(
@@ -142,19 +135,25 @@ namespace Microsoft.Azure.Cosmos.Tests
             return new ValueTask<(string token, string payload)>((null, null));
         }
 
-        string ICosmosAuthorizationTokenProvider.GetUserAuthorizationToken(
+        ValueTask<string> ICosmosAuthorizationTokenProvider.GetUserAuthorizationTokenAsync(
             string resourceAddress,
             string resourceType,
             string requestVerb,
             INameValueCollection headers,
-            AuthorizationTokenType tokenType) /* unused, use token based upon what is passed in constructor */
+            AuthorizationTokenType tokenType,
+            ITrace trace) /* unused, use token based upon what is passed in constructor */
         {
-            return null;
+            return new ValueTask<string>((string)null);
         }
 
         internal virtual IReadOnlyList<PartitionKeyRange> ResolveOverlapingPartitionKeyRanges(string collectionRid, Documents.Routing.Range<string> range, bool forceRefresh)
         {
             return (IReadOnlyList<PartitionKeyRange>) new List<Documents.PartitionKeyRange>() {new Documents.PartitionKeyRange() { MinInclusive = "", MaxExclusive = "FF", Id = "0" } };
+        }
+
+        internal virtual PartitionKeyRange ResolvePartitionKeyRangeById(string collectionRid, string pkRangeId, bool forceRefresh)
+        {
+            return new Documents.PartitionKeyRange() { MinInclusive = "", MaxExclusive = "FF", Id = "0" };
         }
 
         private void Init()
@@ -165,7 +164,8 @@ namespace Microsoft.Azure.Cosmos.Tests
                     (m =>
                         m.ResolveCollectionAsync(
                         It.IsAny<DocumentServiceRequest>(),
-                        It.IsAny<CancellationToken>()
+                        It.IsAny<CancellationToken>(),
+                        It.IsAny<ITrace>()
                     )
                 ).Returns(() =>
                 {
@@ -186,7 +186,9 @@ namespace Microsoft.Azure.Cosmos.Tests
                         m.ResolveByNameAsync(
                         It.IsAny<string>(),
                         It.IsAny<string>(),
-                        It.IsAny<CancellationToken>()
+                        It.IsAny<bool>(),
+                        It.IsAny<CancellationToken>(),
+                        It.IsAny<ITrace>()
                     )
                 ).Returns(() => {
                     ContainerProperties containerSettings = ContainerProperties.CreateWithResourceId("test");
@@ -199,7 +201,9 @@ namespace Microsoft.Azure.Cosmos.Tests
                         m.ResolveByNameAsync(
                         It.IsAny<string>(),
                         It.IsAny<string>(),
-                        It.IsAny<CancellationToken>()
+                        It.IsAny<bool>(),
+                        It.IsAny<CancellationToken>(),
+                        It.IsAny<ITrace>()
                     )
                 ).Returns(() =>
                 {
@@ -222,19 +226,31 @@ namespace Microsoft.Azure.Cosmos.Tests
                             It.IsAny<string>(),
                             It.IsAny<CollectionRoutingMap>(),
                             It.IsAny<DocumentServiceRequest>(),
-                            It.IsAny<CancellationToken>()
+                            It.IsAny<CancellationToken>(),
+                            It.IsAny<ITrace>()
                         )
                 ).Returns(Task.FromResult<CollectionRoutingMap>(null));
             this.partitionKeyRangeCache.Setup(
                         m => m.TryGetOverlappingRangesAsync(
                             It.IsAny<string>(),
                             It.IsAny<Documents.Routing.Range<string>>(),
+                            It.IsAny<ITrace>(),
                             It.IsAny<bool>()
                         )
-                ).Returns((string collectionRid, Documents.Routing.Range<string> range, bool forceRefresh) =>
-                {
-                    return Task.FromResult<IReadOnlyList<PartitionKeyRange>>(this.ResolveOverlapingPartitionKeyRanges(collectionRid, range, forceRefresh));
-                });
+                ).Returns(
+                (string collectionRid, Documents.Routing.Range<string> range, ITrace trace, bool forceRefresh) 
+                    => Task.FromResult<IReadOnlyList<PartitionKeyRange>>(
+                        this.ResolveOverlapingPartitionKeyRanges(collectionRid, range, forceRefresh)));
+
+            this.partitionKeyRangeCache.Setup(
+                    m => m.TryGetPartitionKeyRangeByIdAsync(
+                        It.IsAny<string>(),
+                        It.IsAny<string>(),
+                        It.IsAny<ITrace>(),
+                        It.IsAny<bool>()
+                    )
+            ).Returns((string collectionRid, string pkRangeId, ITrace trace, bool forceRefresh) => 
+            Task.FromResult<PartitionKeyRange>(this.ResolvePartitionKeyRangeById(collectionRid, pkRangeId, forceRefresh)));
 
             this.globalEndpointManager = new Mock<GlobalEndpointManager>(this, new ConnectionPolicy());
 

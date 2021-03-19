@@ -77,6 +77,7 @@ namespace Microsoft.Azure.Cosmos
         {
             this.GatewayModeMaxConnectionLimit = ConnectionPolicy.Default.MaxConnectionLimit;
             this.RequestTimeout = ConnectionPolicy.Default.RequestTimeout;
+            this.TokenCredentialBackgroundRefreshInterval = null;
             this.ConnectionMode = CosmosClientOptions.DefaultConnectionMode;
             this.ConnectionProtocol = CosmosClientOptions.DefaultProtocol;
             this.ApiType = CosmosClientOptions.DefaultApiType;
@@ -137,7 +138,7 @@ namespace Microsoft.Azure.Cosmos
                     throw new ArgumentOutOfRangeException(nameof(value));
                 }
 
-                if (this.HttpClientFactory != null && value != ConnectionPolicy.Default.MaxConnectionLimit )
+                if (this.HttpClientFactory != null && value != ConnectionPolicy.Default.MaxConnectionLimit)
                 {
                     throw new ArgumentException($"{nameof(this.httpClientFactory)} can not be set along with {nameof(this.GatewayModeMaxConnectionLimit)}. This must be set on the HttpClientHandler.MaxConnectionsPerServer property.");
                 }
@@ -153,6 +154,20 @@ namespace Microsoft.Azure.Cosmos
         /// <value>Default value is 1 minute.</value>
         /// <seealso cref="CosmosClientBuilder.WithRequestTimeout(TimeSpan)"/>
         public TimeSpan RequestTimeout { get; set; }
+
+        /// <summary>
+        /// The SDK does a background refresh based on the time interval set to refresh the token credentials.
+        /// This avoids latency issues because the old token is used until the new token is retrieved.
+        /// </summary>
+        /// <remarks>
+        /// The recommended minimum value is 5 minutes. The default value is 25% of the token expire time.
+        /// </remarks>
+#if PREVIEW
+        public
+#else
+        internal
+#endif
+        TimeSpan? TokenCredentialBackgroundRefreshInterval { get; set; }
 
         /// <summary>
         /// Gets the handlers run before the process
@@ -248,6 +263,21 @@ namespace Microsoft.Azure.Cosmos
         /// </remarks>
         /// <seealso cref="CosmosClientBuilder.WithThrottlingRetryOptions(TimeSpan, int)"/>
         public TimeSpan? MaxRetryWaitTimeOnRateLimitedRequests { get; set; }
+
+        /// <summary>
+        /// Gets or sets the boolean to only return the headers and status code in
+        /// the Cosmos DB response for write item operation like Create, Upsert, Patch and Replace.
+        /// Setting the option to false will cause the response to have a null resource. This reduces networking and CPU load by not sending
+        /// the resource back over the network and serializing it on the client.
+        /// </summary>
+        /// <remarks>
+        /// <para>This is optimal for workloads where the returned resource is not used.</para>
+        /// <para>This option can be overriden by similar property in ItemRequestOptions and TransactionalBatchItemRequestOptions</para>
+        /// </remarks>
+        /// <seealso cref="CosmosClientBuilder.WithContentResponseOnWrite(bool)"/>
+        /// <seealso cref="ItemRequestOptions.EnableContentResponseOnWrite"/>
+        /// <seealso cref="TransactionalBatchItemRequestOptions.EnableContentResponseOnWrite"/>
+        public bool? EnableContentResponseOnWrite { get; set; }
 
         /// <summary>
         /// (Direct/TCP) Controls the amount of idle time after which unused connections are closed.
@@ -356,16 +386,12 @@ namespace Microsoft.Azure.Cosmos
             get => this.webProxy;
             set
             {
-                this.webProxy = value;
-                if (this.ConnectionMode != ConnectionMode.Gateway)
-                {
-                    throw new ArgumentException($"{nameof(this.WebProxy)} requires {nameof(this.ConnectionMode)} to be set to {nameof(ConnectionMode.Gateway)}");
-                }
-
-                if (this.HttpClientFactory != null)
+                if (value != null && this.HttpClientFactory != null)
                 {
                     throw new ArgumentException($"{nameof(this.WebProxy)} cannot be set along {nameof(this.HttpClientFactory)}");
                 }
+
+                this.webProxy = value;
             }
         }
 
@@ -479,7 +505,7 @@ namespace Microsoft.Azure.Cosmos
             get => this.httpClientFactory;
             set
             {
-                if (this.WebProxy != null)
+                if (value != null && this.WebProxy != null)
                 {
                     throw new ArgumentException($"{nameof(this.HttpClientFactory)} cannot be set along {nameof(this.WebProxy)}");
                 }
@@ -611,12 +637,13 @@ namespace Microsoft.Azure.Cosmos
             return cloneConfiguration;
         }
 
-        internal ConnectionPolicy GetConnectionPolicy()
+        internal virtual ConnectionPolicy GetConnectionPolicy()
         {
             this.ValidateDirectTCPSettings();
             this.ValidateLimitToEndpointSettings();
-            UserAgentContainer userAgent = this.BuildUserAgentContainer();
-            
+            UserAgentContainer userAgent = new UserAgentContainer();
+            this.SetUserAgentFeatures(userAgent);
+
             ConnectionPolicy connectionPolicy = new ConnectionPolicy()
             {
                 MaxConnectionLimit = this.GatewayModeMaxConnectionLimit,
@@ -689,21 +716,7 @@ namespace Microsoft.Azure.Cosmos
                 return null;
             }
 
-            switch (this.ConsistencyLevel.Value)
-            {
-                case Cosmos.ConsistencyLevel.BoundedStaleness:
-                    return Documents.ConsistencyLevel.BoundedStaleness;
-                case Cosmos.ConsistencyLevel.ConsistentPrefix:
-                    return Documents.ConsistencyLevel.BoundedStaleness;
-                case Cosmos.ConsistencyLevel.Eventual:
-                    return Documents.ConsistencyLevel.Eventual;
-                case Cosmos.ConsistencyLevel.Session:
-                    return Documents.ConsistencyLevel.Session;
-                case Cosmos.ConsistencyLevel.Strong:
-                    return Documents.ConsistencyLevel.Strong;
-                default:
-                    throw new ArgumentException($"Unsupported ConsistencyLevel {this.ConsistencyLevel.Value}");
-            }
+            return (Documents.ConsistencyLevel)this.ConsistencyLevel.Value;
         }
 
         internal static string GetAccountEndpoint(string connectionString)
@@ -787,25 +800,7 @@ namespace Microsoft.Azure.Cosmos
             }
         }
 
-        internal UserAgentContainer BuildUserAgentContainer()
-        {
-            UserAgentContainer userAgent = new UserAgentContainer();
-            string features = this.GetUserAgentFeatures();
-
-            if (!string.IsNullOrEmpty(features))
-            {
-                userAgent.SetFeatures(features.ToString());
-            }
-            
-            if (!string.IsNullOrEmpty(this.ApplicationName))
-            {
-                userAgent.Suffix = this.ApplicationName;
-            }
-
-            return userAgent;
-        }
-
-        private string GetUserAgentFeatures()
+        internal void SetUserAgentFeatures(UserAgentContainer userAgent)
         {
             CosmosClientOptionsFeatures features = CosmosClientOptionsFeatures.NoFeatures;
             if (this.AllowBulkExecution)
@@ -818,12 +813,19 @@ namespace Microsoft.Azure.Cosmos
                 features |= CosmosClientOptionsFeatures.HttpClientFactory;
             }
 
-            if (features == CosmosClientOptionsFeatures.NoFeatures)
+            if (features != CosmosClientOptionsFeatures.NoFeatures)
             {
-                return null;
+                string featureString = Convert.ToString((int)features, 2).PadLeft(8, '0');
+                if (!string.IsNullOrEmpty(featureString))
+                {
+                    userAgent.SetFeatures(featureString);
+                }
             }
-            
-            return Convert.ToString((int)features, 2).PadLeft(8, '0');
+
+            if (!string.IsNullOrEmpty(this.ApplicationName))
+            {
+                userAgent.Suffix = this.ApplicationName;
+            }
         }
 
         /// <summary>

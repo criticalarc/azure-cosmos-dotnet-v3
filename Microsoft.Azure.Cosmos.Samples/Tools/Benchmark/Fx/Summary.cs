@@ -4,14 +4,12 @@
 namespace CosmosBenchmark
 {
     using System;
-    using System.Collections.Generic;
-    using System.Text;
 
     internal struct Summary
     {
         private const int MsPerSecond = 1000;
 
-        public long succesfulOpsCount;
+        public long successfulOpsCount;
         public long failedOpsCount;
         public double ruCharges;
         public double elapsedMs;
@@ -25,9 +23,8 @@ namespace CosmosBenchmark
 
         public double Rps()
         {
-            long total = this.succesfulOpsCount + this.failedOpsCount;
             return Math.Round(
-                    Math.Min(total / this.elapsedMs * Summary.MsPerSecond, total),
+                    Math.Min(this.successfulOpsCount / this.elapsedMs * Summary.MsPerSecond, this.successfulOpsCount),
                     2);
         }
 
@@ -35,7 +32,7 @@ namespace CosmosBenchmark
         {
             Utility.TeePrint("Stats, total: {0,5}   success: {1,5}   fail: {2,3}   RPs: {3,5}   RUps: {4,5}",
                 globalTotal,
-                this.succesfulOpsCount,
+                this.successfulOpsCount,
                 this.failedOpsCount,
                 this.Rps(),
                 this.Rups());
@@ -45,7 +42,7 @@ namespace CosmosBenchmark
         {
             return new Summary()
             {
-                succesfulOpsCount = arg1.succesfulOpsCount + arg2.succesfulOpsCount,
+                successfulOpsCount = arg1.successfulOpsCount + arg2.successfulOpsCount,
                 failedOpsCount = arg1.failedOpsCount + arg2.failedOpsCount,
                 ruCharges = arg1.ruCharges + arg2.ruCharges,
                 elapsedMs = arg1.elapsedMs + arg2.elapsedMs,
@@ -56,7 +53,7 @@ namespace CosmosBenchmark
         {
             return new Summary()
             {
-                succesfulOpsCount = arg1.succesfulOpsCount - arg2.succesfulOpsCount,
+                successfulOpsCount = arg1.successfulOpsCount - arg2.successfulOpsCount,
                 failedOpsCount = arg1.failedOpsCount - arg2.failedOpsCount,
                 ruCharges = arg1.ruCharges - arg2.ruCharges,
                 elapsedMs = arg1.elapsedMs - arg2.elapsedMs,

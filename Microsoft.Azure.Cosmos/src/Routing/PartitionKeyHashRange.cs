@@ -36,6 +36,61 @@ namespace Microsoft.Azure.Cosmos.Routing
             return rangeStartsBefore && rangeEndsAfter;
         }
 
+        public bool Contains(PartitionKeyHashRange partitionKeyHashRange)
+        {
+            bool rangeStartsBefore = !this.StartInclusive.HasValue || (partitionKeyHashRange.StartInclusive.HasValue && (this.StartInclusive.Value <= partitionKeyHashRange.StartInclusive.Value));
+            bool rangeEndsAfter = !this.EndExclusive.HasValue || (partitionKeyHashRange.EndExclusive.HasValue && (partitionKeyHashRange.EndExclusive.Value <= this.EndExclusive.Value));
+            return rangeStartsBefore && rangeEndsAfter;
+        }
+
+        public bool TryGetOverlappingRange(PartitionKeyHashRange rangeToOverlapWith, out PartitionKeyHashRange overlappingRange)
+        {
+            PartitionKeyHash? maxOfStarts;
+            if (this.StartInclusive.HasValue && rangeToOverlapWith.StartInclusive.HasValue)
+            {
+                maxOfStarts = this.StartInclusive.Value > rangeToOverlapWith.StartInclusive.Value ? this.StartInclusive.Value : rangeToOverlapWith.StartInclusive.Value;
+            }
+            else if (this.StartInclusive.HasValue && !rangeToOverlapWith.StartInclusive.HasValue)
+            {
+                maxOfStarts = this.StartInclusive.Value;
+            }
+            else if (!this.StartInclusive.HasValue && rangeToOverlapWith.StartInclusive.HasValue)
+            {
+                maxOfStarts = rangeToOverlapWith.StartInclusive.Value;
+            }
+            else
+            {
+                maxOfStarts = null;
+            }
+
+            PartitionKeyHash? minOfEnds;
+            if (this.EndExclusive.HasValue && rangeToOverlapWith.EndExclusive.HasValue)
+            {
+                minOfEnds = this.EndExclusive.Value < rangeToOverlapWith.EndExclusive.Value ? this.EndExclusive.Value : rangeToOverlapWith.EndExclusive.Value;
+            }
+            else if (this.EndExclusive.HasValue && !rangeToOverlapWith.EndExclusive.HasValue)
+            {
+                minOfEnds = this.EndExclusive.Value;
+            }
+            else if (!this.EndExclusive.HasValue && rangeToOverlapWith.EndExclusive.HasValue)
+            {
+                minOfEnds = rangeToOverlapWith.EndExclusive.Value;
+            }
+            else
+            {
+                minOfEnds = null;
+            }
+
+            if (maxOfStarts.HasValue && minOfEnds.HasValue && (maxOfStarts >= minOfEnds))
+            {
+                overlappingRange = default;
+                return false;
+            }
+
+            overlappingRange = new PartitionKeyHashRange(maxOfStarts, minOfEnds);
+            return true;
+        }
+
         public int CompareTo(PartitionKeyHashRange other)
         {
             // Provide a total sort order by first comparing on the start and then going to the end.

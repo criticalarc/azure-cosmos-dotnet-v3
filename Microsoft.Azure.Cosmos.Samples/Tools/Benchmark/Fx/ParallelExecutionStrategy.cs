@@ -10,15 +10,16 @@ namespace CosmosBenchmark
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Newtonsoft.Json;
 
     internal class ParallelExecutionStrategy : IExecutionStrategy
     {
-        private readonly Func<IBenchmarkOperatrion> benchmarkOperation;
+        private readonly Func<IBenchmarkOperation> benchmarkOperation;
 
         private volatile int pendingExecutorCount;
 
         public ParallelExecutionStrategy(
-            Func<IBenchmarkOperatrion> benchmarkOperation)
+            Func<IBenchmarkOperation> benchmarkOperation)
         {
             this.benchmarkOperation = benchmarkOperation;
         }
@@ -79,7 +80,7 @@ namespace CosmosBenchmark
                     IExecutor executor = executors[i];
                     Summary executorSummary = new Summary()
                     {
-                        succesfulOpsCount = executor.SuccessOperationCount,
+                        successfulOpsCount = executor.SuccessOperationCount,
                         failedOpsCount = executor.FailedOperationCount,
                         ruCharges = executor.TotalRuCharges,
                     };
@@ -93,7 +94,7 @@ namespace CosmosBenchmark
                 Summary diff = currentTotalSummary - lastSummary;
                 lastSummary = currentTotalSummary;
 
-                diff.Print(currentTotalSummary.failedOpsCount + currentTotalSummary.succesfulOpsCount);
+                diff.Print(currentTotalSummary.failedOpsCount + currentTotalSummary.successfulOpsCount);
                 perLoopCounters.Add((int)diff.Rps());
 
                 await Task.Delay(TimeSpan.FromSeconds(outputLoopDelayInSeconds));
@@ -105,7 +106,7 @@ namespace CosmosBenchmark
                 Console.WriteLine();
                 Console.WriteLine("Summary:");
                 Console.WriteLine("--------------------------------------------------------------------- ");
-                lastSummary.Print(lastSummary.failedOpsCount + lastSummary.succesfulOpsCount);
+                lastSummary.Print(lastSummary.failedOpsCount + lastSummary.successfulOpsCount);
 
                 // Skip first 5 and last 5 counters as outliers
                 IEnumerable<int> exceptFirst5 = perLoopCounters.Skip(5);
@@ -115,7 +116,6 @@ namespace CosmosBenchmark
 
                 if (summaryCounters.Length > 10)
                 {
-
                     Console.WriteLine();
                     Utility.TeeTraceInformation("After Excluding outliers");
 
@@ -131,7 +131,13 @@ namespace CosmosBenchmark
                     runSummary.Top95PercentAverageRps = Math.Round(summaryCounters.Take((int)(0.95 * summaryCounters.Length)).Average(), 0);
                     runSummary.AverageRps = Math.Round(summaryCounters.Average(), 0);
 
-                    string summary = JsonHelper.ToString(runSummary);
+                    runSummary.Top50PercentLatencyInMs = TelemetrySpan.GetLatencyPercentile(50);
+                    runSummary.Top75PercentLatencyInMs = TelemetrySpan.GetLatencyPercentile(75);
+                    runSummary.Top90PercentLatencyInMs = TelemetrySpan.GetLatencyPercentile(90);
+                    runSummary.Top95PercentLatencyInMs = TelemetrySpan.GetLatencyPercentile(95);
+                    runSummary.Top99PercentLatencyInMs = TelemetrySpan.GetLatencyPercentile(99);
+
+                    string summary = JsonConvert.SerializeObject(runSummary);
                     Utility.TeeTraceInformation(summary);
                 }
                 else

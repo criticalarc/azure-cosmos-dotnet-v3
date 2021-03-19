@@ -22,12 +22,12 @@ namespace Microsoft.Azure.Cosmos
         public override Task<ResponseMessage> DeleteAsync(
             ConflictProperties conflict,
             PartitionKey partitionKey,
-            CancellationToken cancellationToken = default(CancellationToken))
+            CancellationToken cancellationToken = default)
         {
             return this.ClientContext.OperationHelperAsync(
                 operationName: nameof(DeleteAsync),
                 requestOptions: null,
-                task: (diagnostics) => base.DeleteAsync(diagnostics, conflict, partitionKey, cancellationToken));
+                task: (trace) => base.DeleteAsync(conflict, partitionKey, trace, cancellationToken));
         }
 
         public override FeedIterator GetConflictQueryStreamIterator(
@@ -38,7 +38,8 @@ namespace Microsoft.Azure.Cosmos
             return new FeedIteratorInlineCore(base.GetConflictQueryStreamIterator(
                 queryText,
                 continuationToken,
-                requestOptions));
+                requestOptions),
+                this.ClientContext);
         }
 
         public override FeedIterator<T> GetConflictQueryIterator<T>(
@@ -49,7 +50,8 @@ namespace Microsoft.Azure.Cosmos
             return new FeedIteratorInlineCore<T>(base.GetConflictQueryIterator<T>(
                 queryText,
                 continuationToken,
-                requestOptions));
+                requestOptions),
+                this.ClientContext);
         }
 
         public override FeedIterator GetConflictQueryStreamIterator(
@@ -60,7 +62,8 @@ namespace Microsoft.Azure.Cosmos
             return new FeedIteratorInlineCore(base.GetConflictQueryStreamIterator(
                 queryDefinition,
                 continuationToken,
-                requestOptions));
+                requestOptions),
+                this.ClientContext);
         }
 
         public override FeedIterator<T> GetConflictQueryIterator<T>(
@@ -71,18 +74,19 @@ namespace Microsoft.Azure.Cosmos
             return new FeedIteratorInlineCore<T>(base.GetConflictQueryIterator<T>(
                 queryDefinition,
                 continuationToken,
-                requestOptions));
+                requestOptions),
+                this.ClientContext);
         }
 
         public override Task<ItemResponse<T>> ReadCurrentAsync<T>(
             ConflictProperties cosmosConflict,
             PartitionKey partitionKey,
-            CancellationToken cancellationToken = default(CancellationToken))
+            CancellationToken cancellationToken = default)
         {
             return this.ClientContext.OperationHelperAsync(
                 operationName: nameof(ReadCurrentAsync),
                 requestOptions: null,
-                task: (diagnostics) => base.ReadCurrentAsync<T>(diagnostics, cosmosConflict, partitionKey, cancellationToken));
+                task: (trace) => base.ReadCurrentAsync<T>(cosmosConflict, partitionKey, trace, cancellationToken));
         }
 
         public override T ReadConflictContent<T>(ConflictProperties cosmosConflict)

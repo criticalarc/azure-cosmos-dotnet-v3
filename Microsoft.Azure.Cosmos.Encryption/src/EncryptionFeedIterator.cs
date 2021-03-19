@@ -5,7 +5,6 @@
 namespace Microsoft.Azure.Cosmos.Encryption
 {
     using System;
-    using System.Diagnostics;
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
@@ -14,17 +13,14 @@ namespace Microsoft.Azure.Cosmos.Encryption
     internal sealed class EncryptionFeedIterator : FeedIterator
     {
         private readonly FeedIterator feedIterator;
-        private readonly Encryptor encryptor;
-        private readonly Action<DecryptionResult> decryptionResultHandler;
+        private readonly EncryptionProcessor encryptionProcessor;
 
         public EncryptionFeedIterator(
             FeedIterator feedIterator,
-            Encryptor encryptor,
-            Action<DecryptionResult> decryptionResultHandler = null)
+            EncryptionProcessor encryptionProcessor)
         {
-            this.feedIterator = feedIterator;
-            this.encryptor = encryptor;
-            this.decryptionResultHandler = decryptionResultHandler;
+            this.feedIterator = feedIterator ?? throw new ArgumentNullException(nameof(feedIterator));
+            this.encryptionProcessor = encryptionProcessor ?? throw new ArgumentNullException(nameof(encryptionProcessor));
         }
 
         public override bool HasMoreResults => this.feedIterator.HasMoreResults;
@@ -56,50 +52,27 @@ namespace Microsoft.Azure.Cosmos.Encryption
             CancellationToken cancellationToken)
         {
             JObject contentJObj = EncryptionProcessor.BaseSerializer.FromStream<JObject>(content);
-            JArray result = new JArray();
+            JArray results = new JArray();
 
             if (!(contentJObj.SelectToken(Constants.DocumentsResourcePropertyName) is JArray documents))
             {
-                throw new InvalidOperationException("Feed response Body Contract was violated. Feed response did not have an array of Documents");
+                throw new InvalidOperationException("Feed Response body contract was violated. Feed response did not have an array of Documents. ");
             }
 
             foreach (JToken value in documents)
             {
-                if (!(value is JObject document))
+                if (value is not JObject document)
                 {
-                    result.Add(value);
+                    results.Add(value);
                     continue;
                 }
 
-                try
-                {
-                    JObject decryptedDocument = await EncryptionProcessor.DecryptAsync(
-                        document,
-                        this.encryptor,
-                        diagnosticsContext,
-                        cancellationToken);
+                JObject decryptedDocument = await this.encryptionProcessor.DecryptAsync(
+                    document,
+                    diagnosticsContext,
+                    cancellationToken);
 
-                    result.Add(decryptedDocument);
-                }
-                catch (Exception exception)
-                {
-                    if (this.decryptionResultHandler == null)
-                    {
-                        throw;
-                    }
-
-                    result.Add(document);
-
-                    MemoryStream memoryStream = EncryptionProcessor.BaseSerializer.ToStream(document);
-                    Debug.Assert(memoryStream != null);
-                    bool wasBufferReturned = memoryStream.TryGetBuffer(out ArraySegment<byte> encryptedStream);
-                    Debug.Assert(wasBufferReturned);
-
-                    this.decryptionResultHandler(
-                        DecryptionResult.CreateFailure(
-                            encryptedStream,
-                            exception));
-                }
+                results.Add(decryptedDocument);
             }
 
             JObject decryptedResponse = new JObject();
@@ -107,7 +80,7 @@ namespace Microsoft.Azure.Cosmos.Encryption
             {
                 if (property.Name.Equals(Constants.DocumentsResourcePropertyName))
                 {
-                    decryptedResponse.Add(property.Name, (JToken)result);
+                    decryptedResponse.Add(property.Name, (JToken)results);
                 }
                 else
                 {
