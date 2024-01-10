@@ -77,6 +77,7 @@ namespace Microsoft.Azure.Cosmos.Linq
             public const string Take = "Take";
             public const string Distinct = "Distinct";
             public const string Where = "Where";
+            public const string WhereOr = "WhereOr";
         }
 
         private static string SqlRoot = "root";
@@ -1136,7 +1137,7 @@ namespace Microsoft.Azure.Cosmos.Linq
             context.PushMethod(inputExpression);
 
             Type declaringType = inputExpression.Method.DeclaringType;
-            if ((declaringType != typeof(Queryable) && declaringType != typeof(Enumerable))
+            if ((declaringType != typeof(Queryable) && declaringType != typeof(Enumerable) && declaringType != typeof(CosmosLinqQueryExtensions))
                 || !inputExpression.Method.IsStatic)
             {
                 throw new DocumentQueryException(string.Format(CultureInfo.CurrentCulture, ClientResources.OnlyLINQMethodsAreSupported, inputExpression.Method.Name));
@@ -1170,6 +1171,12 @@ namespace Microsoft.Azure.Cosmos.Linq
                 case LinqMethods.Where:
                     {
                         SqlWhereClause where = ExpressionToSql.VisitWhere(inputExpression.Arguments, context);
+                        context.currentQuery = context.currentQuery.AddWhereClause(where, context);
+                        break;
+                    }
+                case LinqMethods.WhereOr:
+                    {
+                        SqlWhereClause where = ExpressionToSql.VisitWhereOr(inputExpression.Arguments, context);
                         context.currentQuery = context.currentQuery.AddWhereClause(where, context);
                         break;
                     }
@@ -1352,6 +1359,7 @@ namespace Microsoft.Azure.Cosmos.Linq
                 case LinqMethods.Select:
                 case LinqMethods.SelectMany:
                 case LinqMethods.Where:
+                case LinqMethods.WhereOr:
                 case LinqMethods.OrderBy:
                 case LinqMethods.OrderByDescending:
                 case LinqMethods.ThenBy:
@@ -1598,6 +1606,19 @@ namespace Microsoft.Azure.Cosmos.Linq
             LambdaExpression function = Utilities.GetLambda(arguments[1]);
             SqlScalarExpression sqlfunc = ExpressionToSql.VisitScalarExpression(function, context);
             SqlWhereClause where = SqlWhereClause.Create(sqlfunc);
+            return where;
+        }
+
+        private static SqlWhereClause VisitWhereOr(ReadOnlyCollection<Expression> arguments, TranslationContext context)
+        {
+            if (arguments.Count != 2)
+            {
+                throw new DocumentQueryException(string.Format(CultureInfo.CurrentCulture, ClientResources.InvalidArgumentsCount, LinqMethods.WhereOr, 2, arguments.Count));
+            }
+
+            LambdaExpression function = Utilities.GetLambda(arguments[1]);
+            SqlScalarExpression sqlfunc = ExpressionToSql.VisitScalarExpression(function, context);
+            SqlWhereClause where = SqlWhereClause.Create(sqlfunc, true);
             return where;
         }
 
