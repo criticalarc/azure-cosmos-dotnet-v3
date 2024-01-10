@@ -495,6 +495,7 @@ namespace Microsoft.Azure.Cosmos.Linq
                     break;
 
                 case LinqMethods.Where:
+                case LinqMethods.WhereOr:
                 // Where expression parameter needs to be substitued if necessary so
                 // It is not needed in Select distinct because the Select distinct would have the necessary parameter name adjustment.
                 case LinqMethods.Any:
@@ -749,9 +750,15 @@ namespace Microsoft.Azure.Cosmos.Linq
 
             SqlScalarExpression previousFilter = first.FilterExpression;
             SqlScalarExpression currentFilter = second.FilterExpression;
-            SqlBinaryScalarExpression and = SqlBinaryScalarExpression.Create(SqlBinaryScalarOperatorKind.And, previousFilter, currentFilter);
-            SqlWhereClause result = SqlWhereClause.Create(and);
-            return result;
+            if (!second.OrClause)
+            {
+                SqlBinaryScalarExpression and = SqlBinaryScalarExpression.Create(SqlBinaryScalarOperatorKind.And, previousFilter, currentFilter);
+                SqlWhereClause resultAnd = SqlWhereClause.Create(and);
+                return resultAnd;
+            }
+            SqlBinaryScalarExpression or = SqlBinaryScalarExpression.Create(SqlBinaryScalarOperatorKind.Or, previousFilter, currentFilter);
+            SqlWhereClause resultOr = SqlWhereClause.Create(or);
+            return resultOr;
         }
 
         private static FromParameterBindings CombineInputParameters(FromParameterBindings inputQueryParams, FromParameterBindings currentQueryParams)

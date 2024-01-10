@@ -15,16 +15,18 @@ namespace Microsoft.Azure.Cosmos.SqlObjects
 #endif
     sealed class SqlWhereClause : SqlObject
     {
-        private SqlWhereClause(SqlScalarExpression filterExpression)
+        private SqlWhereClause(SqlScalarExpression filterExpression, bool orClause)
         {
             this.FilterExpression = filterExpression ?? throw new ArgumentNullException(nameof(filterExpression));
+            this.OrClause = orClause;
         }
 
         public SqlScalarExpression FilterExpression { get; }
+        public bool OrClause { get; }
 
-        public static SqlWhereClause Create(SqlScalarExpression filterExpression)
+        public static SqlWhereClause Create(SqlScalarExpression filterExpression, bool orClause = false)
         {
-            return new SqlWhereClause(filterExpression);
+            return new SqlWhereClause(filterExpression, orClause);
         }
 
         public override void Accept(SqlObjectVisitor visitor)
