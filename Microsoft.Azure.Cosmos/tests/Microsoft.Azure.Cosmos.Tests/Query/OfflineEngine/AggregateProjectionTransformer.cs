@@ -344,6 +344,16 @@ namespace Microsoft.Azure.Cosmos.Tests.Query.OfflineEngine
                     return scalarExpression;
                 }
 
+                public override SqlScalarExpression Visit(SqlTagsMatchExpressionList scalarExpression)
+                {
+                    return scalarExpression;
+                }
+
+                public override SqlScalarExpression Visit(SqlTagsMatchExpressionLists scalarExpression)
+                {
+                    return scalarExpression;
+                }
+
                 public override SqlScalarExpression Visit(SqlUnaryScalarExpression sqlUnaryScalarExpression)
                 {
                     return SqlUnaryScalarExpression.Create(

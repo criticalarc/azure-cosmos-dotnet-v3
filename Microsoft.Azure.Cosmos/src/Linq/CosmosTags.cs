@@ -2,6 +2,8 @@
 // Copyright (c) Microsoft Corporation.  All rights reserved.
 //------------------------------------------------------------
 
+using System.Collections;
+
 namespace Microsoft.Azure.Cosmos.Linq
 {
     using System;
@@ -36,6 +38,42 @@ namespace Microsoft.Azure.Cosmos.Linq
         Default = Basic | DocumentNotTags,
     }
 
+    public class MatchObjectList : IEnumerable<MatchObject>
+    {
+        private readonly IEnumerable<MatchObject> _matchObjects;
+
+        public MatchObjectList() => _matchObjects = Enumerable.Empty<MatchObject>();
+
+        public MatchObjectList(IEnumerable<MatchObject> matchObjects) => _matchObjects = matchObjects;
+
+        public IEnumerator<MatchObject> GetEnumerator() => _matchObjects.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => _matchObjects.GetEnumerator();
+    }
+    
+    /// <summary>
+    /// Used for TagMatchAny
+    /// </summary>
+    public class MatchObject
+    {
+        /// <summary>
+        /// The expression for the tags on the document
+        /// </summary>
+        public object DataTags { get; set; }
+        /// <summary>
+        /// The list of tags used to filter as string[]
+        /// </summary>
+        public IEnumerable<string> QueryTags { get; set; }
+        /// <summary>
+        /// The TagsQueryOptions 
+        /// </summary>
+        public TagsQueryOptions QueryOptions { get; set; }
+        /// <summary>
+        /// Optionally the name of the UdfName to use
+        /// </summary>
+        public string UdfName { get; set; }
+    }
+    
     /// <summary>
     /// Tag matching for LINQ
     /// </summary>
@@ -59,6 +97,20 @@ namespace Microsoft.Azure.Cosmos.Linq
         /// <param name="udfName">The name of the tag matching UDF when TagsQueryOptions.DocumentRequiredTags is specified</param>
         /// <returns>throws Exception</returns>
         public static bool Match(object dataTags, object queryTags, TagsQueryOptions queryOptions, string udfName = "TagsMatch") => throw new Exception("CosmosTags.Match is only for linq expressions");
+
+        /// <summary>
+        /// Tags MatchAny matching for LINQ
+        /// </summary>
+        /// <param name="filters">For each MatchObjectList performs an AND within and an OR across MatchObjectLists</param>
+        /// <returns>throws Exception</returns>
+        public static bool MatchAny(IEnumerable<MatchObjectList> filters) => throw new Exception("CosmosTags.MatchAny is only for linq expressions");
+
+        /// <summary>
+        /// Tags MatchAny matching for LINQ
+        /// </summary>
+        /// <param name="filters">For each MatchObjectList performs an AND within and an OR across MatchObjectLists</param>
+        /// <returns>throws Exception</returns>
+        public static bool MatchAny(params MatchObjectList[] filters) => throw new Exception("CosmosTags.MatchAny is only for linq expressions");
 
         /// <summary>
         /// Creates and SQL WHERE condition string from a tag match expression.
