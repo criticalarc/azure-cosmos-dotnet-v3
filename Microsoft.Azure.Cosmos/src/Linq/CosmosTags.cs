@@ -38,17 +38,35 @@ namespace Microsoft.Azure.Cosmos.Linq
         Default = Basic | DocumentNotTags,
     }
 
+    /// <summary>
+    /// A list of MatchObjects
+    /// </summary>
     public class MatchObjectList : IEnumerable<MatchObject>
     {
-        private readonly IEnumerable<MatchObject> _matchObjects;
+        private readonly IEnumerable<MatchObject> matchObjects;
 
-        public MatchObjectList() => _matchObjects = Enumerable.Empty<MatchObject>();
+        /// <summary>
+        /// Creates a new MatchObjectList
+        /// </summary>
+        public MatchObjectList() => matchObjects = Enumerable.Empty<MatchObject>();
 
-        public MatchObjectList(IEnumerable<MatchObject> matchObjects) => _matchObjects = matchObjects;
+        /// <summary>
+        /// Creates a new MatchObjectList from an existing list
+        /// </summary>
+        /// <param name="matchObjects"></param>
+        public MatchObjectList(IEnumerable<MatchObject> matchObjects) => matchObjects = matchObjects;
 
-        public IEnumerator<MatchObject> GetEnumerator() => _matchObjects.GetEnumerator();
+        /// <summary>
+        /// Returns the enumerator from the internal list
+        /// </summary>
+        /// <returns>IEnumerator</returns>
+        public IEnumerator<MatchObject> GetEnumerator() => matchObjects.GetEnumerator();
 
-        IEnumerator IEnumerable.GetEnumerator() => _matchObjects.GetEnumerator();
+        /// <summary>
+        /// Returns the enumerator from the internal list
+        /// </summary>
+        /// <returns>IEnumerator</returns>
+        IEnumerator IEnumerable.GetEnumerator() => matchObjects.GetEnumerator();
     }
     
     /// <summary>
@@ -56,6 +74,57 @@ namespace Microsoft.Azure.Cosmos.Linq
     /// </summary>
     public class MatchObject
     {
+        /// <summary>
+        /// Creates a new MatchObject with the UdfName = TagsMatch
+        /// </summary>
+        /// <param name="dataTags"></param>
+        /// <param name="queryTags"></param>
+        /// <param name="tagsQueryOptions"></param>
+        /// <returns>new MatchObject</returns>
+        public static MatchObject Create(object dataTags, IEnumerable<string> queryTags, TagsQueryOptions tagsQueryOptions)
+            => new (dataTags, queryTags, tagsQueryOptions, "TagsMatch");
+
+        /// <summary>
+        /// Creates a new MatchObject
+        /// </summary>
+        /// <param name="dataTags"></param>
+        /// <param name="queryTags"></param>
+        /// <param name="tagsQueryOptions"></param>
+        /// <param name="udfName"></param>
+        /// <returns>new MatchObject</returns>
+        public static MatchObject Create(object dataTags, IEnumerable<string> queryTags, TagsQueryOptions tagsQueryOptions, string udfName = "TagsMatch")
+            => new (dataTags, queryTags, tagsQueryOptions, udfName);
+
+        /// <summary>
+        /// Creates a new MatchObject
+        /// </summary>
+        public MatchObject() { }
+        
+        /// <summary>
+        /// Creates a new MatchObject
+        /// </summary>
+        /// <param name="dataTags"></param>
+        /// <param name="queryTags"></param>
+        /// <param name="tagsQueryOptions"></param>
+        public MatchObject(object dataTags, IEnumerable<string> queryTags, TagsQueryOptions tagsQueryOptions): this(dataTags, queryTags, tagsQueryOptions, "TagsMatch")
+        {
+        }
+
+        /// <summary>
+        /// Creates a new MatchObject
+        /// </summary>
+        /// <param name="dataTags"></param>
+        /// <param name="queryTags"></param>
+        /// <param name="tagsQueryOptions"></param>
+        /// <param name="udfName"></param>
+        public MatchObject(object dataTags, IEnumerable<string> queryTags, TagsQueryOptions tagsQueryOptions, string udfName)
+        {
+            DataTags = dataTags;
+            QueryTags = queryTags;
+            QueryOptions = tagsQueryOptions;
+            UdfName = udfName;
+        }
+
         /// <summary>
         /// The expression for the tags on the document
         /// </summary>
