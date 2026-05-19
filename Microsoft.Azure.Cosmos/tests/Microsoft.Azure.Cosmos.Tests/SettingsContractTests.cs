@@ -19,6 +19,7 @@ namespace Microsoft.Azure.Cosmos.Tests
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
     using FullTextPath = Microsoft.Azure.Cosmos.FullTextPath;
+    using FullTextPolicy = Microsoft.Azure.Cosmos.FullTextPolicy;
 
     [TestClass]
     public class SettingsContractTests
@@ -804,7 +805,8 @@ namespace Microsoft.Azure.Cosmos.Tests
                 "ClientEncryptionPolicy",
                 "PartitionKeyPaths",
                 "VectorEmbeddingPolicy",
-                "FullTextPolicy");
+                "FullTextPolicy",
+                "ChangeFeedPolicy");
 #endif
 
             // Two equivalent definitions 
@@ -1154,6 +1156,80 @@ namespace Microsoft.Azure.Cosmos.Tests
         }
 
         [TestMethod]
+        public void EmbeddingSourceRoundTripSerialization()
+        {
+            const string embeddingPolicyJson = "{\"vectorEmbeddings\":[{\"path\":\"/embedding\",\"dataType\":\"float32\",\"dimensions\":1536,\"distanceFunction\":\"cosine\",\"embeddingSource\":{\"sourcePaths\":[\"/journal_title\",\"/title\",\"/toc_abstract\",\"/abstract\",\"/full_text\"],\"deploymentName\":\"text-embedding-3-small\",\"modelName\":\"text-embedding-3-small\",\"endpoint\":\"https://embedding-south-central.cognitiveservices.azure.com/\",\"authType\":\"ApiKey\"}},{\"path\":\"/embedding2\",\"dataType\":\"float32\",\"dimensions\":1536,\"distanceFunction\":\"cosine\",\"embeddingSource\":{\"sourcePaths\":[\"/title\"],\"deploymentName\":\"text-embedding-3-small\",\"modelName\":\"text-embedding-3-small\",\"endpoint\":\"https://embedding-south-central.cognitiveservices.azure.com/\",\"authType\":\"Entra\"}}]}";
+
+            Cosmos.VectorEmbeddingPolicy policy = JsonConvert.DeserializeObject<Cosmos.VectorEmbeddingPolicy>(embeddingPolicyJson);
+            Cosmos.EmbeddingSource source = policy.Embeddings[0].EmbeddingSource;
+            CollectionAssert.AreEqual(
+                new[] { "/journal_title", "/title", "/toc_abstract", "/abstract", "/full_text" },
+                source.SourcePaths.ToArray());
+            Assert.AreEqual("text-embedding-3-small", source.DeploymentName);
+            Assert.AreEqual("text-embedding-3-small", source.ModelName);
+            Assert.AreEqual("https://embedding-south-central.cognitiveservices.azure.com/", source.Endpoint);
+            Assert.AreEqual(Cosmos.EmbeddingAuthType.ApiKey, source.AuthType);
+            Assert.AreEqual(Cosmos.EmbeddingAuthType.Entra, policy.Embeddings[1].EmbeddingSource.AuthType);
+
+            string roundTripped = JsonConvert.SerializeObject(policy);
+            Assert.IsTrue(
+                JToken.DeepEquals(JObject.Parse(embeddingPolicyJson), JObject.Parse(roundTripped)),
+                $"Round-tripped JSON differs.\nExpected: {embeddingPolicyJson}\nActual:   {roundTripped}");
+        }
+
+        [TestMethod]
+        public void EmbeddingSourceValueEquality()
+        {
+            static Cosmos.EmbeddingSource Build(string deployment, Cosmos.EmbeddingAuthType auth)
+            {
+                return new()
+                {
+                    SourcePaths = new Collection<string> { "/title", "/abstract" },
+                    DeploymentName = deployment,
+                    ModelName = "text-embedding-3-small",
+                    Endpoint = "https://embedding.example.com/",
+                    AuthType = auth,
+                };
+            }
+
+            Cosmos.EmbeddingSource a = Build("text-embedding-3-small", Cosmos.EmbeddingAuthType.ApiKey);
+            Cosmos.EmbeddingSource b = Build("text-embedding-3-small", Cosmos.EmbeddingAuthType.ApiKey);
+
+            Assert.AreNotSame(a, b);
+            Assert.IsTrue(a.Equals(b));
+            Assert.IsTrue(a.Equals((object)b));
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode());
+
+            Cosmos.EmbeddingSource differentAuth = Build("text-embedding-3-small", Cosmos.EmbeddingAuthType.Entra);
+            Assert.IsFalse(a.Equals(differentAuth));
+
+            Cosmos.EmbeddingSource reorderedPaths = Build("text-embedding-3-small", Cosmos.EmbeddingAuthType.ApiKey);
+            reorderedPaths.SourcePaths = new Collection<string> { "/abstract", "/title" };
+            Assert.IsFalse(a.Equals(reorderedPaths));
+
+            Assert.IsFalse(a.Equals((Cosmos.EmbeddingSource)null));
+            Assert.IsFalse(a.Equals((object)null));
+
+            Cosmos.Embedding e1 = new Cosmos.Embedding()
+            {
+                Path = "/embedding",
+                DataType = Cosmos.VectorDataType.Float32,
+                DistanceFunction = Cosmos.DistanceFunction.Cosine,
+                Dimensions = 1536,
+                EmbeddingSource = a,
+            };
+            Cosmos.Embedding e2 = new Cosmos.Embedding()
+            {
+                Path = "/embedding",
+                DataType = Cosmos.VectorDataType.Float32,
+                DistanceFunction = Cosmos.DistanceFunction.Cosine,
+                Dimensions = 1536,
+                EmbeddingSource = b,
+            };
+            Assert.IsTrue(e1.Equals(e2));
+        }
+
+        [TestMethod]
         public void FullTextPolicySerialization()
         {
             ContainerProperties containerSettings = new ContainerProperties("TestContainer", "/pk");
@@ -1203,6 +1279,71 @@ namespace Microsoft.Azure.Cosmos.Tests
             Assert.AreEqual(JTokenType.String, fullTextLanguageDeSerialized.Type, "Full Text Policy serialized language should be a string.");
             Assert.IsTrue(fullTextPath1.Equals(fullTextPathsDeSerialized.Value<JArray>()[0].ToObject<Cosmos.FullTextPath>()));
             Assert.IsTrue(fullTextPath2.Equals(fullTextPathsDeSerialized.Value<JArray>()[1].ToObject<Cosmos.FullTextPath>()));
+        }
+
+        [TestMethod]
+        [DataRow("en-US")]
+        [DataRow("fr-FR")]
+        [DataRow("de-DE")]
+        [DataRow("it-IT")]
+        [DataRow("pt-BR")]
+        [DataRow("pt-PT")]
+        [DataRow("es-ES")]
+        public void FullTextPolicySerializationWithAllSupportedLanguages(string language)
+        {
+            FullTextPolicy fullTextPolicy = new FullTextPolicy
+            {
+                DefaultLanguage = language,
+                FullTextPaths = new Collection<FullTextPath>
+                {
+                    new FullTextPath { Path = "/text1", Language = language },
+                    new FullTextPath { Path = "/text2", Language = "en-US" },
+                    new FullTextPath { Path = "/text3" } // No language specified, should use default
+                }
+            };
+
+            string serialized = CosmosSerialize(fullTextPolicy);
+            Assert.IsNotNull(serialized);
+            Assert.IsTrue(serialized.Contains($"\"defaultLanguage\":\"{language}\""),
+                $"Serialized JSON should contain defaultLanguage: {language}");
+
+            FullTextPolicy deserialized = CosmosDeserialize<FullTextPolicy>(serialized);
+            Assert.IsNotNull(deserialized);
+            Assert.AreEqual(language, deserialized.DefaultLanguage,
+                $"DefaultLanguage mismatch after deserialization for: {language}");
+            Assert.AreEqual(3, deserialized.FullTextPaths.Count);
+            Assert.AreEqual(language, deserialized.FullTextPaths[0].Language);
+            Assert.AreEqual("en-US", deserialized.FullTextPaths[1].Language);
+            Assert.IsNull(deserialized.FullTextPaths[2].Language);
+        }
+
+        [TestMethod]
+        [DataRow("en-US")]
+        [DataRow("fr-FR")]
+        [DataRow("de-DE")]
+        [DataRow("it-IT")]
+        [DataRow("ja-JP")]
+        [DataRow("pt-BR")]
+        [DataRow("pt-PT")]
+        [DataRow("es-ES")]
+        public void FullTextPathSerializationWithAllLanguages(string language)
+        {
+            FullTextPath fullTextPath = new FullTextPath
+            {
+                Path = "/testPath",
+                Language = language
+            };
+
+            string serialized = CosmosSerialize(fullTextPath);
+            Assert.IsNotNull(serialized);
+            Assert.IsTrue(serialized.Contains($"\"language\":\"{language}\""),
+                $"Serialized JSON should contain language: {language}");
+
+            FullTextPath deserialized = CosmosDeserialize<FullTextPath>(serialized);
+            Assert.IsNotNull(deserialized);
+            Assert.AreEqual("/testPath", deserialized.Path);
+            Assert.AreEqual(language, deserialized.Language,
+                $"Language mismatch after deserialization for: {language}");
         }
 
         private static T CosmosDeserialize<T>(string payload)

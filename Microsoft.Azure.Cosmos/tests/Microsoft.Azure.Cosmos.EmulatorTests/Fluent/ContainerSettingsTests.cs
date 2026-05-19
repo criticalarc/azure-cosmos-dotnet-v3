@@ -17,7 +17,10 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
     [TestClass]
     public class ContainerSettingsTests : BaseCosmosClientHelper
     {
-        private static long ToEpoch(DateTime dateTime) => (long)(dateTime - new DateTime(1970, 1, 1)).TotalSeconds;
+        private static long ToEpoch(DateTime dateTime)
+        {
+            return (long)(dateTime - new DateTime(1970, 1, 1)).TotalSeconds;
+        }
 
         [TestInitialize]
         public async Task TestInitialize()
@@ -497,7 +500,7 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
                 containerSettings = containerResponse.Resource;
                 Assert.IsNotNull(containerSettings.ConflictResolutionPolicy);
                 Assert.AreEqual(ConflictResolutionMode.Custom, containerSettings.ConflictResolutionPolicy.Mode);
-                Assert.AreEqual(UriFactory.CreateStoredProcedureUri(databaseForConflicts.Id, containerName, sprocName), containerSettings.ConflictResolutionPolicy.ResolutionProcedure);
+                Assert.AreEqual(UriFactory.CreateStoredProcedureUri(databaseForConflicts.Id, containerName, sprocName).ToString(), containerSettings.ConflictResolutionPolicy.ResolutionProcedure);
                 Assert.IsTrue(string.IsNullOrEmpty(containerSettings.ConflictResolutionPolicy.ResolutionPath));
             }
             finally
@@ -627,6 +630,105 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             {
                 await databaseForVectorEmbedding.DeleteAsync();
             }
+        }
+
+        [TestMethod]
+        [Ignore("Requires a real Cosmos DB account with vector-embedding preview enabled. Fill in the endpoint and key before running.")]
+        public async Task TestVectorEmbeddingPolicyWithEmbeddingSource()
+        {
+            const string accountEndpoint = "";
+            const string accountKey = "";
+
+            const string databaseId = "embeddingSourceIntegrationDb";
+            const string containerId = "embeddingSourceIntegrationContainer";
+            const string partitionKeyPath = "/pk";
+            const string embeddingPath = "/embedding";
+
+            CosmosClient client = new CosmosClient(accountEndpoint, accountKey);
+            Database database = await client.CreateDatabaseIfNotExistsAsync(databaseId);
+
+            try
+            {
+                EmbeddingSource embeddingSource = new EmbeddingSource()
+                {
+                    SourcePaths = new Collection<string>
+                    {
+                        "/journal_title",
+                        "/title",
+                        "/toc_abstract",
+                        "/abstract",
+                        "/full_text",
+                    },
+                    DeploymentName = "text-embedding-3-small",
+                    ModelName = "text-embedding-3-small",
+                    Endpoint = "https://embedding-south-central.cognitiveservices.azure.com/",
+                    AuthType = EmbeddingAuthType.ApiKey,
+                };
+
+                Collection<Embedding> embeddings = new Collection<Embedding>()
+                {
+                    new Embedding()
+                    {
+                        Path = embeddingPath,
+                        DataType = VectorDataType.Float32,
+                        DistanceFunction = DistanceFunction.Cosine,
+                        Dimensions = 1536,
+                        EmbeddingSource = embeddingSource,
+                    },
+                };
+
+                try
+                {
+                    await database.GetContainer(containerId).DeleteContainerAsync();
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                {
+                }
+
+                ContainerResponse containerResponse =
+                    await database.DefineContainer(containerId, partitionKeyPath)
+                        .WithVectorEmbeddingPolicy(embeddings)
+                        .Attach()
+                        .CreateAsync();
+
+                Assert.AreEqual(HttpStatusCode.Created, containerResponse.StatusCode);
+                Assert.AreEqual(containerId, containerResponse.Resource.Id);
+                Assert.AreEqual(partitionKeyPath, containerResponse.Resource.PartitionKey.Paths.First());
+
+                this.AssertEmbeddingSourceRoundTrip(containerResponse.Resource.VectorEmbeddingPolicy, embeddingPath, embeddingSource);
+
+                ContainerResponse readResponse = await containerResponse.Container.ReadContainerAsync();
+                Assert.AreEqual(HttpStatusCode.OK, readResponse.StatusCode);
+                Assert.AreEqual(containerId, readResponse.Resource.Id);
+                Assert.AreEqual(partitionKeyPath, readResponse.Resource.PartitionKey.Paths.First());
+
+                this.AssertEmbeddingSourceRoundTrip(readResponse.Resource.VectorEmbeddingPolicy, embeddingPath, embeddingSource);
+            }
+            finally
+            {
+                await database.DeleteAsync();
+                client.Dispose();
+            }
+        }
+
+        private void AssertEmbeddingSourceRoundTrip(VectorEmbeddingPolicy policy, string expectedEmbeddingPath, EmbeddingSource expected)
+        {
+            Assert.IsNotNull(policy);
+            Assert.AreEqual(1, policy.Embeddings.Count());
+
+            Embedding readEmbedding = policy.Embeddings.Single();
+            Assert.AreEqual(expectedEmbeddingPath, readEmbedding.Path);
+            Assert.AreEqual(VectorDataType.Float32, readEmbedding.DataType);
+            Assert.AreEqual(DistanceFunction.Cosine, readEmbedding.DistanceFunction);
+            Assert.AreEqual(1536, readEmbedding.Dimensions);
+
+            EmbeddingSource readSource = readEmbedding.EmbeddingSource;
+            Assert.IsNotNull(readSource, "EmbeddingSource should be returned by the server.");
+            CollectionAssert.AreEqual(expected.SourcePaths.ToArray(), readSource.SourcePaths.ToArray());
+            Assert.AreEqual(expected.DeploymentName, readSource.DeploymentName);
+            Assert.AreEqual(expected.ModelName, readSource.ModelName);
+            Assert.AreEqual(expected.Endpoint, readSource.Endpoint);
+            Assert.AreEqual(expected.AuthType, readSource.AuthType);
         }
 
         [TestMethod]
@@ -1303,6 +1405,102 @@ namespace Microsoft.Azure.Cosmos.SDK.EmulatorTests
             catch (ArgumentException ex)
             {
                 Assert.IsTrue(ex.Message.Contains("Only Deterministic encryption type is supported for path: /id."), ex.Message);
+            }
+        }
+
+        [Ignore("Marking as ignore until emulator is updated")]
+        [TestMethod]
+        [DataRow("en-US")]
+        [DataRow("fr-FR")]
+        [DataRow("de-DE")]
+        [DataRow("it-IT")]
+        [DataRow("pt-BR")]
+        [DataRow("pt-PT")]
+        [DataRow("es-ES")]
+        public async Task TestFullTextSearchPolicyWithAllSupportedDefaultLanguages(string defaultLanguage)
+        {
+            string fullTextPath1 = "/fts1", fullTextPath2 = "/fts2";
+            string endpoint = "";
+            string key = "";
+
+            string databaseName = "TestDatabaseFullTextPolicy";
+            string containerName = "TestContainerFullTextPolicy_"+ defaultLanguage;
+
+            CosmosClientOptions clientOptions = new CosmosClientOptions
+            {
+                ConnectionMode = ConnectionMode.Direct,
+            };
+            CosmosClient client = new(endpoint, key, clientOptions);
+
+            Database databaseForFullTextSearch = await client.CreateDatabaseIfNotExistsAsync(databaseName);
+            try
+            {
+                string partitionKeyPath = "/pk";
+
+                Collection<FullTextPath> fullTextPaths = new Collection<FullTextPath>()
+                {
+                    new FullTextPath()
+                    {
+                        Path = fullTextPath1,
+                        Language = defaultLanguage,
+                    },
+                    new FullTextPath()
+                    {
+                        Path = fullTextPath2,
+                        Language = defaultLanguage,
+                    }
+                };
+
+                ContainerResponse containerResponse =
+                    await databaseForFullTextSearch.DefineContainer(containerName, partitionKeyPath)
+                        .WithFullTextPolicy(
+                            defaultLanguage: defaultLanguage,
+                            fullTextPaths: fullTextPaths)
+                        .Attach()
+                        .WithIndexingPolicy()
+                            .WithFullTextIndex()
+                                .Path(fullTextPath1)
+                             .Attach()
+                            .WithFullTextIndex()
+                                .Path(fullTextPath2)
+                             .Attach()
+                        .Attach()
+                        .CreateAsync();
+
+                Assert.AreEqual(HttpStatusCode.Created, containerResponse.StatusCode,
+                    $"Failed to create container with default language: {defaultLanguage}");
+                Assert.AreEqual(containerName, containerResponse.Resource.Id);
+                Assert.AreEqual(partitionKeyPath, containerResponse.Resource.PartitionKey.Paths.First());
+
+                ContainerProperties containerSettings = containerResponse.Resource;
+
+                // Validate FullText Policy
+                Assert.IsNotNull(containerSettings.FullTextPolicy,
+                    $"FullTextPolicy is null for language: {defaultLanguage}");
+                Assert.AreEqual(defaultLanguage, containerSettings.FullTextPolicy.DefaultLanguage,
+                    $"DefaultLanguage mismatch for: {defaultLanguage}");
+                Assert.IsNotNull(containerSettings.FullTextPolicy.FullTextPaths);
+                Assert.AreEqual(fullTextPaths.Count, containerSettings.FullTextPolicy.FullTextPaths.Count());
+
+                // Validate each path has the correct language
+                foreach (FullTextPath path in containerSettings.FullTextPolicy.FullTextPaths)
+                {
+                    Assert.AreEqual(defaultLanguage, path.Language,
+                        $"Path language mismatch for default language: {defaultLanguage}");
+                }
+
+                // Validate Full Text Indexes
+                Assert.IsNotNull(containerSettings.IndexingPolicy.FullTextIndexes);
+                Assert.AreEqual(fullTextPaths.Count, containerSettings.IndexingPolicy.FullTextIndexes.Count());
+                Assert.AreEqual(fullTextPath1, containerSettings.IndexingPolicy.FullTextIndexes[0].Path);
+                Assert.AreEqual(fullTextPath2, containerSettings.IndexingPolicy.FullTextIndexes[1].Path);
+
+                // Clean up container after test
+                await containerResponse.Container.DeleteContainerAsync();
+            }
+            finally
+            {
+                await databaseForFullTextSearch.DeleteAsync();
             }
         }
 
