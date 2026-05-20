@@ -6,6 +6,7 @@ namespace Microsoft.Azure.Cosmos
 {
     using System;
     using System.Collections.Generic;
+    using System.Net;
     using Microsoft.Azure.Cosmos.Resource.FullFidelity;
     using Microsoft.Azure.Documents;
     using Newtonsoft.Json;
@@ -14,12 +15,7 @@ namespace Microsoft.Azure.Cosmos
     /// <summary>
     /// The metadata of a change feed resource with <see cref="ChangeFeedMode"/> is initialized to <see cref="ChangeFeedMode.AllVersionsAndDeletes"/>.
     /// </summary>
-#if PREVIEW
-    public
-#else
-    internal
-#endif
-    class ChangeFeedMetadata
+    public class ChangeFeedMetadata
     {
         private readonly static DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
 
@@ -28,12 +24,34 @@ namespace Microsoft.Azure.Cosmos
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         [Newtonsoft.Json.JsonIgnore]
-        public DateTime? ConflictResolutionTimestamp => this.ConflictResolutionTimestampInSeconds.HasValue ? UnixEpoch.AddSeconds(this.ConflictResolutionTimestampInSeconds.Value) : null;
+        public DateTime ConflictResolutionTimestamp => UnixEpoch.AddSeconds(this.ConflictResolutionTimestampInSeconds);
+
+        private double conflictResolutionTimestampInSeconds;
 
         [System.Text.Json.Serialization.JsonInclude]
         [System.Text.Json.Serialization.JsonPropertyName(ChangeFeedMetadataFields.ConflictResolutionTimestamp)]
-        [JsonProperty(PropertyName = ChangeFeedMetadataFields.ConflictResolutionTimestamp)]
-        internal double? ConflictResolutionTimestampInSeconds { get; set; }
+        [JsonProperty(PropertyName = ChangeFeedMetadataFields.ConflictResolutionTimestamp, Required = Required.Always)]
+        internal double ConflictResolutionTimestampInSeconds 
+        { 
+            get
+            {
+                if (this.conflictResolutionTimestampInSeconds <= 0)
+                {
+                    throw new System.Text.Json.JsonException(
+                        $"{ChangeFeedMetadataFields.ConflictResolutionTimestamp} not set.");
+                }
+                return this.conflictResolutionTimestampInSeconds;
+            }
+            set
+            {
+                if (value == 0)
+                {
+                    throw new System.Text.Json.JsonException(
+                        $"{ChangeFeedMetadataFields.ConflictResolutionTimestamp} cannot be zero.");
+                }
+                this.conflictResolutionTimestampInSeconds = value;
+            }
+        }
 
         /// <summary>
         /// The current change's logical sequence number.

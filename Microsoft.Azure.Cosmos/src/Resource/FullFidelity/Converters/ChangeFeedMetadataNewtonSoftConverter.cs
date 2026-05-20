@@ -46,8 +46,10 @@ namespace Microsoft.Azure.Cosmos.Resource.FullFidelity.Converters
                     writer.WritePropertyName(ChangeFeedMetadataFields.PartitionKey);
                     writer.WriteStartObject(); 
 
-                    foreach ((string key, object objectValue) in metadata.PartitionKey)
+                    foreach (KeyValuePair<string, object> entry in metadata.PartitionKey)
                     {
+                        string key = entry.Key;
+                        object objectValue = entry.Value;
                         writer.WritePropertyName(key);
 
                         if (objectValue == null)
@@ -107,7 +109,7 @@ namespace Microsoft.Azure.Cosmos.Resource.FullFidelity.Converters
             }
 
             ChangeFeedMetadata metadata = new ChangeFeedMetadata();
-            List<(string, object)> partitionKey = null;
+            Dictionary<string, object> partitionKey = null;
 
             reader.Read(); // StartObject
 
@@ -119,7 +121,7 @@ namespace Microsoft.Azure.Cosmos.Resource.FullFidelity.Converters
                 switch (propertyName)
                 {
                     case ChangeFeedMetadataFields.ConflictResolutionTimestamp:
-                        metadata.ConflictResolutionTimestamp = ChangeFeedMetadataNewtonSoftConverter.ToDateTimeFromUnixTimeInSeconds(Convert.ToInt64(reader.Value));
+                        metadata.ConflictResolutionTimestampInSeconds = Convert.ToDouble(reader.Value);
                         break;
 
                     case ChangeFeedMetadataFields.Lsn:
@@ -145,7 +147,7 @@ namespace Microsoft.Azure.Cosmos.Resource.FullFidelity.Converters
                     case ChangeFeedMetadataFields.PartitionKey:
                         if (reader.TokenType == JsonToken.StartObject)
                         {
-                            partitionKey ??= new List<(string, object)>();
+                            partitionKey ??= new Dictionary<string, object>();
                             reader.Read(); // Move to the first property in the object
                             while (reader.TokenType == JsonToken.PropertyName)
                             {
@@ -162,7 +164,7 @@ namespace Microsoft.Azure.Cosmos.Resource.FullFidelity.Converters
                                     _ => throw new JsonSerializationException($"Unexpected token type: {reader.TokenType} for PartitionKey property.")
                                 };
 
-                                partitionKey.Add((key, value));
+                                partitionKey[key] = value;
                                 reader.Read(); // Move to the next property or EndObject
                             }
                             metadata.PartitionKey = partitionKey;
@@ -191,11 +193,6 @@ namespace Microsoft.Azure.Cosmos.Resource.FullFidelity.Converters
         private static long ToUnixTimeInSecondsFromDateTime(DateTime date)
         {
             return (long)(date - ChangeFeedMetadataNewtonSoftConverter.UnixEpoch).TotalSeconds;
-        }
-
-        private static DateTime ToDateTimeFromUnixTimeInSeconds(long unixTimeInSeconds)
-        {
-            return ChangeFeedMetadataNewtonSoftConverter.UnixEpoch.AddSeconds(unixTimeInSeconds);
         }
     }
 }
