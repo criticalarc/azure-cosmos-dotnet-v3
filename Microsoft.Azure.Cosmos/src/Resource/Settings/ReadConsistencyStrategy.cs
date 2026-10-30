@@ -11,18 +11,13 @@ namespace Microsoft.Azure.Cosmos
     /// <remarks>
     /// <para>
     /// When set, <see cref="ReadConsistencyStrategy"/> takes precedence over <see cref="ConsistencyLevel"/>
-    /// for read and query operations. The strategy is honored in Direct connectivity mode.
+    /// for read and query operations.
     /// </para>
     /// <para>
     /// <see cref="GlobalStrong"/> is only valid for accounts configured with Strong consistency.
     /// </para>
     /// </remarks>
-#if PREVIEW
-    public
-#else
-    internal
-#endif
-    enum ReadConsistencyStrategy
+    public enum ReadConsistencyStrategy
     {
         /// <summary>
         /// Eventual consistency - reads from a single random secondary replica.

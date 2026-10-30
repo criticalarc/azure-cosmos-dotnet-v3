@@ -8,12 +8,22 @@ namespace Microsoft.Azure.Cosmos
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.Azure.Cosmos.Telemetry.OpenTelemetry;
+    using Microsoft.Azure.Cosmos.Tracing;
     using Microsoft.Azure.Documents;
 
     internal class DistributedReadTransactionCore : DistributedReadTransaction
     {
+        internal const string CommitAlreadyCalledMessage =
+            "ExecuteTransactionAsync has already been called on this transaction instance. " +
+            "A DistributedReadTransaction is single-use; to retry, construct a new " +
+            "DistributedReadTransaction with the same items.";
+
         private readonly CosmosClientContext clientContext;
         private readonly List<DistributedTransactionOperation> operations;
+        private readonly object idempotencyTokenLock = new object();
+        private Guid latestIdempotencyToken;
+        private int isCommitInvoked;
 
         internal DistributedReadTransactionCore(CosmosClientContext clientContext)
         {
@@ -21,22 +31,33 @@ namespace Microsoft.Azure.Cosmos
             this.operations = new List<DistributedTransactionOperation>();
         }
 
+        /// <inheritdoc/>
+        internal override Guid IdempotencyToken
+        {
+            get
+            {
+                lock (this.idempotencyTokenLock)
+                {
+                    return this.latestIdempotencyToken;
+                }
+            }
+        }
+
         public override DistributedReadTransaction ReadItem(
-            string database,
-            string collection,
+            Container container,
             PartitionKey partitionKey,
             string id,
             DistributedTransactionRequestOptions requestOptions = null)
         {
-            DistributedReadTransactionCore.ValidateContainerReference(database, collection);
+            (string databaseId, string containerId) = DistributedTransactionConstants.ValidateAndUnpackContainer(container, this.clientContext.Client);
             DistributedReadTransactionCore.ValidateItemId(id);
 
             this.operations.Add(
                 new DistributedTransactionOperation(
                     operationType: OperationType.Read,
                     operationIndex: this.operations.Count,
-                    database: database,
-                    container: collection,
+                    database: databaseId,
+                    container: containerId,
                     partitionKey: partitionKey,
                     id: id,
                     requestOptions: requestOptions));
@@ -44,26 +65,47 @@ namespace Microsoft.Azure.Cosmos
             return this;
         }
 
-        public override async Task<DistributedTransactionResponse> CommitTransactionAsync(
+        /// <inheritdoc/>
+        /// <exception cref="OperationCanceledException">Thrown if <paramref name="cancellationToken"/> is cancelled before or during the commit.</exception>
+        public override Task<DistributedTransactionResponse> ExecuteTransactionAsync(
             CancellationToken cancellationToken = default)
         {
-            DistributedTransactionCommitter committer = new DistributedTransactionCommitter(
-                operations: this.operations,
-                clientContext: this.clientContext);
-
-            return await committer.CommitTransactionAsync(cancellationToken);
-        }
-
-        private static void ValidateContainerReference(string database, string collection)
-        {
-            if (string.IsNullOrWhiteSpace(database))
+            if (this.operations.Count == 0)
             {
-                throw new ArgumentNullException(nameof(database));
+                throw new InvalidOperationException("Cannot commit a distributed read transaction with zero operations. Add at least one ReadItem call before committing.");
             }
 
-            if (string.IsNullOrWhiteSpace(collection))
+            if (Interlocked.CompareExchange(ref this.isCommitInvoked, DistributedTransactionConstants.CommitStarted, DistributedTransactionConstants.CommitNotStarted) != DistributedTransactionConstants.CommitNotStarted)
             {
-                throw new ArgumentNullException(nameof(collection));
+                throw new InvalidOperationException(CommitAlreadyCalledMessage);
+            }
+
+            return this.clientContext.OperationHelperAsync(
+                operationName: $"{nameof(DistributedReadTransaction)}.{nameof(ExecuteTransactionAsync)}",
+                containerName: null,
+                databaseName: null,
+                operationType: OperationType.Read,
+                requestOptions: null,
+                task: (trace) =>
+                {
+                    DistributedTransactionCommitter committer = new DistributedTransactionCommitter(
+                        operations: this.operations,
+                        clientContext: this.clientContext,
+                        operationType: OperationType.Read,
+                        onDispatch: this.PublishIdempotencyToken);
+
+                    return committer.ExecuteTransactionAsync(trace, cancellationToken);
+                },
+                openTelemetry: new (OpenTelemetryConstants.Operations.ExecuteDistributedReadTransaction,
+                                    (response) => new OpenTelemetryResponse(response)),
+                traceComponent: TraceComponent.Batch);
+        }
+
+        private void PublishIdempotencyToken(Guid token)
+        {
+            lock (this.idempotencyTokenLock)
+            {
+                this.latestIdempotencyToken = token;
             }
         }
 
