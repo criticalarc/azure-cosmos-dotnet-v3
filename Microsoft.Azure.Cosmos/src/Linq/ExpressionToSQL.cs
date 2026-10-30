@@ -287,7 +287,7 @@ namespace Microsoft.Azure.Cosmos.Linq
         private static IEnumerable<string> GetQueryTagsMatchObject(Expression queryTagsBinding, ParameterExpression matchParam, object matchValue)
         {
             var queryLambda = matchParam == null ? Expression.Lambda(queryTagsBinding) : Expression.Lambda(queryTagsBinding, matchParam);
-            var query = matchValue == null ? queryLambda.Compile().DynamicInvoke() : queryLambda.Compile().DynamicInvoke(matchValue);
+             var query = matchValue == null ? queryLambda.Compile(preferInterpretation: true).DynamicInvoke() : queryLambda.Compile(preferInterpretation: true).DynamicInvoke(matchValue);
             var queryTags = (IEnumerable<string>)query;
             return queryTags;
         }
@@ -479,7 +479,7 @@ namespace Microsoft.Azure.Cosmos.Linq
                     //Handles MatchAny(filters.Select(f => new MatchObjectList { xxxxx }))
                     if (lambdaMethodExpression.Method.Name == "Select")
                     {
-                        var selectValue = Expression.Lambda(lambdaMethodExpression.Arguments[0]).Compile().DynamicInvoke();
+                        var selectValue = Expression.Lambda(lambdaMethodExpression.Arguments[0]).Compile(preferInterpretation: true).DynamicInvoke();
                         var lambda = ExtractExpression<LambdaExpression>(lambdaMethodExpression.Arguments[1]);
 
                         if (selectValue is IEnumerable matchesObjectMultiple)
@@ -1024,6 +1024,16 @@ namespace Microsoft.Azure.Cosmos.Linq
                 }
             }
 
+            // For KeyValuePair<K,V>, map .Key → "k" and .Value → "v" to match OBJECTTOARRAY output format.
+            // OBJECTTOARRAY converts a JSON object to [{k: key, v: value}] pairs.
+            Type containingType = inputExpression.Expression?.Type;
+            if (containingType != null && containingType.IsGenericType() && containingType.GetGenericTypeDefinition() == typeof(KeyValuePair<,>))
+            {
+                string originalMemberName = inputExpression.Member.Name;
+                if (originalMemberName == "Key") memberName = "k";
+                else if (originalMemberName == "Value") memberName = "v";
+            }
+
             if (usePropertyRef)
             {
                 SqlIdentifier propertyIdentifier = SqlIdentifier.Create(memberName);
@@ -1353,7 +1363,36 @@ namespace Microsoft.Azure.Cosmos.Linq
             SqlScalarExpression body = ExpressionToSql.VisitNonSubqueryScalarExpression(inputExpression, context);
             Type type = inputExpression.Type;
 
-            Collection collection = ExpressionToSql.ConvertToCollection(body);
+            Collection collection;
+            if (type.IsDictionary())
+            {
+                // For Dictionary types, wrap the dictionary access with OBJECTTOARRAY to convert
+                // the JSON object into an array of {k, v} pairs that can be iterated.
+                //
+                // We must emit a subquery here (rather than a raw function call) because the Cosmos
+                // SQL grammar does not allow a function call expression as the immediate right-hand
+                // side of "JOIN x IN ...". For example:
+                //
+                //   JOIN v0 IN ObjectToArray(c.Things)                  -- syntax error (SC1001)
+                //   JOIN v0 IN (SELECT VALUE ObjectToArray(c.Things))   -- valid, and v0 iterates
+                //                                                          each {k, v} pair as
+                //                                                          Cosmos flattens the
+                //                                                          subquery result.
+                SqlScalarExpression objectToArrayCall = SqlFunctionCallScalarExpression.CreateBuiltin(
+                    SqlFunctionCallScalarExpression.Names.ObjectToArray,
+                    body);
+
+                SqlSelectSpec selectSpec = SqlSelectValueSpec.Create(objectToArrayCall);
+                SqlSelectClause selectClause = SqlSelectClause.Create(selectSpec);
+                SqlQuery subquery = SqlQuery.Create(selectClause, fromClause: null, whereClause: null, groupByClause: null, orderByClause: null, offsetLimitClause: null);
+                SqlCollection subqueryCollection = SqlSubqueryCollection.Create(subquery);
+                collection = new Collection(subqueryCollection);
+            }
+            else
+            {
+                collection = ExpressionToSql.ConvertToCollection(body);
+            }
+
             context.PushCollection(collection);
             ParameterExpression parameter = context.GenerateFreshParameter(type, parameterName);
             context.PushParameter(parameter, context.CurrentSubqueryBinding.ShouldBeOnNewQuery);
