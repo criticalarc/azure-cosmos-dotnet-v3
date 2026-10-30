@@ -287,7 +287,7 @@ namespace Microsoft.Azure.Cosmos.Linq
         private static IEnumerable<string> GetQueryTagsMatchObject(Expression queryTagsBinding, ParameterExpression matchParam, object matchValue)
         {
             var queryLambda = matchParam == null ? Expression.Lambda(queryTagsBinding) : Expression.Lambda(queryTagsBinding, matchParam);
-            var query = matchValue == null ? queryLambda.Compile().DynamicInvoke() : queryLambda.Compile().DynamicInvoke(matchValue);
+             var query = matchValue == null ? queryLambda.Compile(preferInterpretation: true).DynamicInvoke() : queryLambda.Compile(preferInterpretation: true).DynamicInvoke(matchValue);
             var queryTags = (IEnumerable<string>)query;
             return queryTags;
         }
@@ -479,7 +479,7 @@ namespace Microsoft.Azure.Cosmos.Linq
                     //Handles MatchAny(filters.Select(f => new MatchObjectList { xxxxx }))
                     if (lambdaMethodExpression.Method.Name == "Select")
                     {
-                        var selectValue = Expression.Lambda(lambdaMethodExpression.Arguments[0]).Compile().DynamicInvoke();
+                        var selectValue = Expression.Lambda(lambdaMethodExpression.Arguments[0]).Compile(preferInterpretation: true).DynamicInvoke();
                         var lambda = ExtractExpression<LambdaExpression>(lambdaMethodExpression.Arguments[1]);
 
                         if (selectValue is IEnumerable matchesObjectMultiple)
