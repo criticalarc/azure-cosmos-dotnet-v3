@@ -156,9 +156,9 @@ namespace Microsoft.Azure.Cosmos.Linq
                             if (needsLoopAnd)
                                 sb.Append(" AND ");
 
-                            sb.Append($"NOT(ARRAY_CONTAINS({tagProp}, \"{wildcardTag}\"))");
+                            sb.Append($"NOT(IS_DEFINED({tagProp}) AND ARRAY_CONTAINS({tagProp}, \"{wildcardTag}\"))");
                             foreach (var not in nots)
-                                sb.Append($" AND NOT(ARRAY_CONTAINS({tagProp}, \"{not.Tag.Substring(1)}\"))");
+                                sb.Append($" AND NOT(IS_DEFINED({tagProp}) AND ARRAY_CONTAINS({tagProp}, \"{not.Tag.Substring(1)}\"))");
                             needsNotsAnd = true;
                             needsLoopAnd = true;
                         }
