@@ -287,7 +287,7 @@ namespace Microsoft.Azure.Cosmos.Linq
         private static IEnumerable<string> GetQueryTagsMatchObject(Expression queryTagsBinding, ParameterExpression matchParam, object matchValue)
         {
             var queryLambda = matchParam == null ? Expression.Lambda(queryTagsBinding) : Expression.Lambda(queryTagsBinding, matchParam);
-             var query = matchValue == null ? queryLambda.Compile(preferInterpretation: true).DynamicInvoke() : queryLambda.Compile(preferInterpretation: true).DynamicInvoke(matchValue);
+            var query = matchValue == null ? queryLambda.Compile(preferInterpretation: true).DynamicInvoke() : queryLambda.Compile(preferInterpretation: true).DynamicInvoke(matchValue);
             var queryTags = (IEnumerable<string>)query;
             return queryTags;
         }
